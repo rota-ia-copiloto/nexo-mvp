@@ -23,9 +23,9 @@ def run():
     elif role=='Auditor': auditor.render(ctx)
     elif role=='Empresa': companies.render(ctx)
     else:
-        options=['Visão Geral','Visão Territorial','Mercado de Trabalho','Radar de Investimentos','Radar de Vagas','Skills Intelligence','Empresas','Participantes','Cursos e Trilhas','Matching','Jornada','Outcomes','Evidence Ledger','Skills Graph','Laboratório CPSI']
+        options=['Visão Geral','Visão Territorial','Mercado de Trabalho','Radar de Investimentos','Radar de Vagas','Skills Intelligence','Skills Graph']
         if st.session_state.nav not in options: st.session_state.nav='Visão Geral'
         nav=st.sidebar.radio('Navegação',options,key='nav')
-        mapping={'Visão Geral':home,'Visão Territorial':territorial,'Mercado de Trabalho':labor_market,'Radar de Investimentos':investments,'Radar de Vagas':vacancy_radar,'Skills Intelligence':market,'Empresas':companies,'Participantes':participants,'Cursos e Trilhas':training,'Matching':matching,'Jornada':journey,'Outcomes':outcomes,'Evidence Ledger':evidence,'Skills Graph':graph,'Laboratório CPSI':cpsi}
+        mapping={'Visão Geral':home,'Visão Territorial':territorial,'Mercado de Trabalho':labor_market,'Radar de Investimentos':investments,'Radar de Vagas':vacancy_radar,'Skills Intelligence':market,'Skills Graph':graph}
         mapping[nav].render(ctx)
     footer()
