@@ -5,4 +5,4 @@ CSS="""<style>
 </style>"""
 def apply_theme(): st.markdown(CSS,unsafe_allow_html=True)
 def header(kicker,title,subtitle): st.markdown(f'<div class="nexo-hero"><div class="nexo-kicker">{kicker}</div><div class="nexo-title">{title}</div><div class="nexo-sub">{subtitle}</div></div>',unsafe_allow_html=True)
-def footer(): st.markdown('---'); st.caption('NEXO — Ambiente demonstrativo. Dados inteiramente sintéticos para prova de conceito do CPSI.')
+def footer(): st.markdown('---'); st.caption('NEXO — MVP CPSI. Painéis territoriais e radares usam dados demonstrativos; fluxos conectados ao Supabase são identificados na interface.')

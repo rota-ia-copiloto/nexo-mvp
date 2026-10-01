@@ -8,7 +8,7 @@ from nexo.services.validation import validate_demo
 from nexo.services.supabase_edge import EdgeFunctionClient
 from nexo.ui.theme import apply_theme, footer
 from nexo.ui.state import init_state, reset
-from nexo.pages import home,market,companies,participants,training,matching,journey,outcomes,evidence,auditor,graph,cpsi,participant_mode
+from nexo.pages import home,territorial,labor_market,investments,vacancy_radar,market,companies,participants,training,matching,journey,outcomes,evidence,auditor,graph,cpsi,participant_mode
 
 def run():
     st.set_page_config(page_title='NEXO — MVP CPSI',page_icon='🔗',layout='wide',initial_sidebar_state='expanded')
@@ -23,9 +23,9 @@ def run():
     elif role=='Auditor': auditor.render(ctx)
     elif role=='Empresa': companies.render(ctx)
     else:
-        options=['Visão Geral','Inteligência do Mercado','Empresas','Participantes','Cursos e Trilhas','Matching','Jornada','Outcomes','Evidence Ledger','Skills Graph','Laboratório CPSI']
+        options=['Visão Geral','Visão Territorial','Mercado de Trabalho','Radar de Investimentos','Radar de Vagas','Skills Intelligence','Empresas','Participantes','Cursos e Trilhas','Matching','Jornada','Outcomes','Evidence Ledger','Skills Graph','Laboratório CPSI']
         if st.session_state.nav not in options: st.session_state.nav='Visão Geral'
         nav=st.sidebar.radio('Navegação',options,key='nav')
-        mapping={'Visão Geral':home,'Inteligência do Mercado':market,'Empresas':companies,'Participantes':participants,'Cursos e Trilhas':training,'Matching':matching,'Jornada':journey,'Outcomes':outcomes,'Evidence Ledger':evidence,'Skills Graph':graph,'Laboratório CPSI':cpsi}
+        mapping={'Visão Geral':home,'Visão Territorial':territorial,'Mercado de Trabalho':labor_market,'Radar de Investimentos':investments,'Radar de Vagas':vacancy_radar,'Skills Intelligence':market,'Empresas':companies,'Participantes':participants,'Cursos e Trilhas':training,'Matching':matching,'Jornada':journey,'Outcomes':outcomes,'Evidence Ledger':evidence,'Skills Graph':graph,'Laboratório CPSI':cpsi}
         mapping[nav].render(ctx)
     footer()
