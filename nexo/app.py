@@ -8,7 +8,7 @@ from nexo.services.validation import validate_demo
 from nexo.services.supabase_edge import EdgeFunctionClient
 from nexo.ui.theme import apply_theme, footer
 from nexo.ui.state import init_state, reset
-from nexo.pages import home,territorial,labor_market,investments,vacancy_radar,market,companies,participants,training,matching,journey,outcomes,evidence,auditor,graph,cpsi,participant_mode
+from nexo.pages import home,territorial,labor_market,investments,vacancy_radar,market,companies,participants,training,matching,journey,outcomes,evidence,graph,cpsi,participant_mode
 
 def run():
     st.set_page_config(page_title='NEXO — MVP CPSI',page_icon='🔗',layout='wide',initial_sidebar_state='expanded')
@@ -16,11 +16,10 @@ def run():
     if repo.__class__.__name__=='DemoRepository': validate_demo(repo)
     ctx=SimpleNamespace(repo=repo,matching=MatchingService(repo),outcomes=OutcomeService(repo),skills=SkillsService(repo),edge=EdgeFunctionClient.from_env())
     st.sidebar.markdown('# 🔗 NEXO'); st.sidebar.caption('Inteligência de Competências e Resultados')
-    role=st.sidebar.selectbox('Modo de demonstração',['Gestor Público','Empresa','Participante','Auditor'],key='selected_role')
+    role=st.sidebar.selectbox('Modo de demonstração',['Gestor Público','Empresa','Participante'],key='selected_role')
     st.sidebar.markdown('---'); st.sidebar.caption(f'Backend: {repo.__class__.__name__.replace("Repository","")}')
     if st.sidebar.button('Resetar demonstração'): reset(); st.rerun()
     if role=='Participante': participant_mode.render(ctx)
-    elif role=='Auditor': auditor.render(ctx)
     elif role=='Empresa': companies.render(ctx)
     else:
         options=['Visão Geral','Visão Territorial','Mercado de Trabalho','Radar de Investimentos','Radar de Vagas','Skills Intelligence','Skills Graph']
