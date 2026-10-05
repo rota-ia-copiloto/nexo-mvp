@@ -643,21 +643,80 @@ def page_overview():
     page_header(
         "VISÃO GERAL",
         "NEXO Qualifica+",
-        "Sistema operacional de inteligência e gestão adaptativa de trajetórias para qualificação e inserção produtiva.",
+        "Inteligência territorial, demanda produtiva e gestão adaptativa de trajetórias para qualificação e inserção produtiva.",
     )
+
+    # ------------------------------------------------------------
+    # BLOCO TERRITORIAL-ECONÔMICO — valores demonstrativos do MVP
+    # ------------------------------------------------------------
+    st.subheader("Contexto territorial e econômico")
+    st.caption(
+        "Indicadores demonstrativos para o MVP. Na implantação, este bloco deverá ser alimentado por fontes oficiais e registros municipais, "
+        "com atualização conforme a periodicidade de cada base."
+    )
+
+    territorial = st.columns(6)
+    territorial_metrics = [
+        ("Saldo Novo Caged — 12m", "+2.340", "Empregos formais", "Novo Caged"),
+        ("Estoque formal", "98.420", "Vínculos ativos", "RAIS / Novo Caged"),
+        ("PIB municipal", "R$ 47,8 bi", "Referência econômica", "IBGE"),
+        ("PIB per capita", "R$ 180 mil", "Referência econômica", "IBGE"),
+        ("Novos investimentos", "R$ 1,8 bi", "Monitorados", "Radar municipal"),
+        ("Empregos potenciais", "1.250", "Associados a investimentos", "Empresas / projetos"),
+    ]
+    for col, (label, value, help_text, source) in zip(territorial, territorial_metrics):
+        col.metric(label, value, help=help_text)
+        col.caption(f"Fonte: {source}")
+
     st.markdown(
-        '<div class="hero"><h3>Hipótese do MVP</h3><p>Fechar o circuito entre demanda produtiva, competências, trajetória, intervenção, aprendizagem, outcome e nova decisão pública.</p></div>',
+        '<div class="card"><b>Leitura territorial:</b> o NEXO combina indicadores de emprego, estrutura econômica e novos investimentos para contextualizar a demanda por competências antes de recomendar intervenções formativas.</div>',
+        unsafe_allow_html=True,
+    )
+
+    c1, c2 = st.columns([1.15, 1])
+    with c1:
+        st.markdown("#### Pressões de demanda no território")
+        pressure_df = pd.DataFrame(
+            [
+                {"Setor": "Logística e operações", "Sinal": "Alta", "Indicador demonstrativo": "+420 vagas / 12m", "Implicação": "Reforçar competências operacionais e digitais"},
+                {"Setor": "Serviços empresariais e RH", "Sinal": "Média-alta", "Indicador demonstrativo": "+180 vagas / 12m", "Implicação": "Recrutamento, atendimento e ferramentas digitais"},
+                {"Setor": "Manutenção industrial", "Sinal": "Alta", "Indicador demonstrativo": "3 investimentos monitorados", "Implicação": "Formação técnica e certificações"},
+            ]
+        )
+        st.dataframe(pressure_df, use_container_width=True, hide_index=True)
+
+    with c2:
+        st.markdown("#### Investimentos monitorados")
+        investments_df = pd.DataFrame(
+            [
+                {"Projeto": "Expansão logística", "Horizonte": "12–18 meses", "Empregos potenciais": 420},
+                {"Projeto": "Nova operação de serviços", "Horizonte": "6–12 meses", "Empregos potenciais": 180},
+                {"Projeto": "Ampliação industrial", "Horizonte": "18–24 meses", "Empregos potenciais": 650},
+            ]
+        )
+        st.dataframe(investments_df, use_container_width=True, hide_index=True)
+
+    st.divider()
+
+    # ------------------------------------------------------------
+    # HIPÓTESE E CIRCUITO EXPERIMENTAL DO MVP
+    # ------------------------------------------------------------
+    st.markdown(
+        '<div class="hero"><h3>Hipótese do MVP</h3><p>Fechar o circuito entre contexto territorial, demanda produtiva, competências, trajetória, intervenção, aprendizagem, outcome e nova decisão pública.</p></div>',
         unsafe_allow_html=True,
     )
     flow_strip()
     st.write("")
+
+    st.subheader("Pipeline experimental do NEXO")
+    st.caption("Os indicadores abaixo são sintéticos e demonstram o funcionamento do circuito do MVP.")
     metric_funnel()
 
     st.subheader("Decisões recomendadas pelo sistema")
     c1, c2 = st.columns([1.4, 1])
     with c1:
         st.markdown(
-            '<div class="decision"><b>Recomendação gerencial</b><br><br>A trilha de operações logísticas apresenta boa conclusão, mas o segmento com barreira digital perde conversão antes da demonstração prática. <br><br><b>Ação sugerida:</b> testar inclusão digital curta + tutoria na próxima coorte, mantendo o desenho comparativo.</div>',
+            '<div class="decision"><b>Recomendação gerencial</b><br><br>Os sinais territoriais indicam pressão de demanda em operações logísticas, enquanto o experimento mostra boa conclusão da trilha, mas perda de conversão no segmento com barreira digital antes da demonstração prática. <br><br><b>Ação sugerida:</b> testar inclusão digital curta + tutoria na próxima coorte e acompanhar se a intervenção reduz o gap de conversão para contratação.</div>',
             unsafe_allow_html=True,
         )
     with c2:
@@ -673,6 +732,11 @@ def page_overview():
     ]
     for col, (title, body) in zip(cols, cards):
         col.markdown(f'<div class="card"><h4>{title}</h4><p>{body}</p></div>', unsafe_allow_html=True)
+
+    st.caption(
+        "Fontes previstas para produção: Novo Caged, RAIS, IBGE, registros municipais, radar de investimentos, empresas e parceiros. "
+        "Os valores territoriais exibidos nesta versão são demonstrativos; dados reais deverão ser integrados na etapa de implantação/piloto."
+    )
     disclaimer()
 
 
