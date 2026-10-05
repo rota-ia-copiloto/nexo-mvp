@@ -357,6 +357,8 @@ def init_state():
         "remap_target": {},
         "occupation_matches": [],
         "selected_cbo": None,
+        "candidate_profiles": {},
+        "qualifica_recommendations": {},
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -921,11 +923,148 @@ def page_demand_skills():
     disclaimer()
 
 
+def _income_support_signal(income_range: str) -> bool:
+    return income_range in {"Sem renda", "Até R$ 1.000"}
+
+
+def _infer_skills_from_occupation(occupation_text: str) -> List[str]:
+    """Retorna nomes de habilidades QBQ associadas à ocupação anterior informada."""
+    if not occupation_text.strip():
+        return []
+    matches = occupation_matches(occupation_text, top_n=1)
+    if not matches:
+        return []
+    rec = matches[0]["record"]
+    names = []
+    for item in rec.get("skills", [])[:8]:
+        name = str(item.get("name", "")).strip()
+        if name:
+            names.append(name)
+    return names
+
+
+def _competence_overlap(name: str, candidates: List[str]) -> bool:
+    n = normalize_text(name)
+    nt = meaningful_tokens(n)
+    for c in candidates:
+        cn = normalize_text(c)
+        ct = meaningful_tokens(cn)
+        if n == cn or (nt and ct and len(nt & ct) >= max(1, min(len(nt), len(ct)) // 2)):
+            return True
+    return False
+
+
+def diagnose_candidate(profile: Dict, demand_skill_ids: List[str]) -> Dict:
+    demanded = [SKILLS[sid]["name"] for sid in demand_skill_ids if sid in SKILLS]
+    self_declared = profile.get("self_declared_skills", [])
+    inferred = _infer_skills_from_occupation(profile.get("last_occupation", ""))
+
+    evidence_rows = []
+    covered = 0
+    for name in demanded:
+        sources = []
+        if _competence_overlap(name, self_declared):
+            sources.append("Autodeclarada")
+        if _competence_overlap(name, inferred):
+            sources.append("Inferida da experiência (CBO/QBQ)")
+        if sources:
+            covered += 1
+        evidence_rows.append({
+            "competência demandada": name,
+            "evidência atual": " + ".join(sources) if sources else "Sem evidência registrada",
+            "situação": "Com evidência" if sources else "Gap a verificar/desenvolver",
+        })
+
+    alignment = covered / max(len(demanded), 1)
+    barriers = []
+    if _income_support_signal(profile.get("personal_income", "")) or profile.get("income_urgency") == "Alta":
+        barriers.append("Pressão econômica / necessidade imediata de renda")
+    if profile.get("digital_access") in {"Internet instável", "Somente smartphone", "Sem acesso regular"}:
+        barriers.append("Acesso digital limitado")
+    if profile.get("digital_autonomy") in {"Baixa", "Muito baixa"}:
+        barriers.append("Baixa autonomia digital")
+    if profile.get("transport_barrier"):
+        barriers.append("Restrição de transporte / deslocamento")
+    if int(profile.get("commute_minutes", 0) or 0) >= 60:
+        barriers.append("Tempo elevado de deslocamento")
+    if profile.get("care_responsibility"):
+        barriers.append("Responsabilidade de cuidado")
+    if profile.get("schedule_restriction"):
+        barriers.append("Restrição de horário")
+
+    years_exp = float(profile.get("years_experience", 0) or 0)
+    months_out = int(profile.get("months_out", 0) or 0)
+    first_job = bool(profile.get("first_job"))
+    career_change = bool(profile.get("career_change"))
+    age = int(profile.get("age", 0) or 0)
+
+    if first_job or years_exp < 1:
+        experience_status = "Primeiro acesso / experiência inicial"
+    elif years_exp >= 3:
+        experience_status = "Experiência consolidada"
+    else:
+        experience_status = "Experiência em construção"
+
+    if alignment >= .67:
+        skills_status = "Aderência elevada às competências da demanda"
+    elif alignment >= .34:
+        skills_status = "Aderência parcial — há gaps focalizados"
+    else:
+        skills_status = "Baixa aderência atual — requer desenvolvimento"
+
+    digital_status = "Adequado" if profile.get("digital_access") == "Internet e dispositivo adequados" and profile.get("digital_autonomy") in {"Alta", "Média"} else "Requer apoio"
+    mobility_status = "Requer ajuste" if profile.get("transport_barrier") or int(profile.get("commute_minutes", 0) or 0) >= 60 else "Adequada"
+    permanence_status = "Requer acompanhamento" if len(barriers) >= 2 else "Sem barreira crítica identificada"
+
+    # Regras explicáveis para o MVP. No piloto, esta camada pode incorporar IA supervisionada.
+    if first_job and (age <= 24 or years_exp < 1) and len(barriers) >= 1:
+        initial = "Qualifica+ Travessias"
+        next_step = "Qualifica+ Conecta"
+        rationale = "Trajetória profissional inicial combinada a necessidade de preparação e mediação mais intensiva."
+    elif len(barriers) >= 2:
+        initial = "Qualifica+ Inclusão"
+        next_step = "Qualifica+ Conecta"
+        rationale = "Foram identificadas barreiras concretas de participação/permanência que devem ser tratadas antes ou junto da qualificação técnica."
+    elif months_out >= 12 or career_change:
+        initial = "Qualifica+ Novos Rumos"
+        next_step = "Qualifica+ Conecta"
+        rationale = "Há ruptura, afastamento prolongado ou intenção de reconstrução/transição profissional."
+    else:
+        initial = "Qualifica+ Conecta"
+        next_step = "Conexão direta com trilha aderente e oportunidades produtivas"
+        rationale = "O perfil apresenta condições de participação e potencial de conexão mais direta com demandas produtivas."
+
+    dimensions = [
+        ("Experiência profissional", experience_status),
+        ("Competências frente à demanda", skills_status),
+        ("Acesso e autonomia digital", digital_status),
+        ("Mobilidade territorial", mobility_status),
+        ("Condições de permanência", permanence_status),
+    ]
+
+    return {
+        "demanded_skills": demanded,
+        "evidence_rows": evidence_rows,
+        "alignment": alignment,
+        "barriers": list(dict.fromkeys(barriers)),
+        "dimensions": dimensions,
+        "initial_journey": initial,
+        "next_journey": next_step,
+        "rationale": rationale,
+        "inferred_skills": inferred,
+    }
+
+
 def page_trajectory():
     page_header(
-        "ADAPTIVE TRAJECTORY",
-        "Trajetórias",
-        "Lê competências, gaps e barreiras operacionais para sugerir o próximo percurso — com explicação e decisão humana obrigatória.",
+        "DIAGNÓSTICO & TRAJETÓRIA",
+        "Perfil, diagnóstico e jornada Qualifica+",
+        "A pessoa informa sua trajetória, condições de participação, competências e objetivos. O NEXO organiza as evidências e sugere uma jornada para revisão humana.",
+    )
+
+    st.info(
+        "**Princípio metodológico:** o NEXO não atribui uma nota geral de empregabilidade nem classifica vulnerabilidade como destino. "
+        "Ele identifica ativos, gaps e barreiras concretas para apoiar uma decisão compartilhada sobre a trajetória."
     )
 
     names = PARTICIPANTS.set_index("participant_id")["name"].to_dict()
@@ -936,56 +1075,166 @@ def page_trajectory():
         index=list(names.keys()).index(st.session_state.selected_participant),
     )
     st.session_state.selected_participant = pid
-    p = participant_record(pid)
+    seed = participant_record(pid)
+
     extracted = extract_skills(st.session_state.selected_demand_text)
     demand_skill_ids = required_skills_from_demand(extracted)
-    gaps, readiness = gap_analysis(pid, demand_skill_ids)
-    rec = recommend_path(pid, demand_skill_ids)
-    st.session_state.recommendations[pid] = rec
+    demand_skill_names = [SKILLS[sid]["name"] for sid in demand_skill_ids if sid in SKILLS]
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Participante", p["name"])
-    c2.metric("Prontidão estimada", f"{readiness:.0%}")
-    c3.metric("Gaps críticos", int((gaps["gap"] > 0).sum()))
-    c4.metric("Barreiras registradas", len(p["barriers"]))
+    existing = st.session_state.candidate_profiles.get(pid, {})
 
-    left, right = st.columns([1.05, 1])
-    with left:
-        st.subheader("Leitura de percurso")
-        st.dataframe(gaps[["competência", "nível_atual", "nível_requerido", "situação"]], use_container_width=True, hide_index=True)
-        st.markdown("**Barreiras operacionais relevantes**")
-        if p["barriers"]:
-            for b in p["barriers"]:
-                st.markdown(f'<span class="chip chip-warn">{b}</span>', unsafe_allow_html=True)
+    st.markdown("### Preenchimento do perfil")
+    st.caption("Etapas: 1. Perfil → 2. Trajetória profissional → 3. Condições de participação → 4. Competências → 5. Objetivos → 6. Diagnóstico → 7. Jornada sugerida")
+
+    with st.form(f"candidate_profile_{pid}"):
+        st.markdown("#### 1. Perfil")
+        c1, c2, c3 = st.columns(3)
+        name = c1.text_input("Nome", value=existing.get("name", seed["name"]))
+        age = c2.number_input("Idade", min_value=16, max_value=80, value=int(existing.get("age", seed["age"])))
+        neighborhood = c3.text_input("Bairro / região de residência", value=existing.get("neighborhood", ""), placeholder="Ex.: Cidade Nova")
+        c1, c2, c3 = st.columns(3)
+        education = c1.selectbox("Escolaridade", ["Fundamental incompleto", "Fundamental completo", "Ensino Médio", "Técnico", "Superior incompleto", "Superior completo"], index=2)
+        employment_status = c2.selectbox("Situação atual de trabalho", ["Desempregada(o)", "Emprego formal", "Trabalho informal", "Autônoma(o)", "Primeiro emprego"])
+        availability = c3.multiselect("Disponibilidade", ["Manhã", "Tarde", "Noite", "Finais de semana"], default=existing.get("availability_slots", ["Manhã", "Tarde"]))
+
+        st.markdown("#### 2. Trajetória profissional")
+        c1, c2, c3 = st.columns(3)
+        last_occupation = c1.text_input("Última ocupação / ocupação atual", value=existing.get("last_occupation", ""), placeholder="Ex.: Auxiliar de estoque")
+        years_experience = c2.number_input("Anos aproximados de experiência profissional", min_value=0.0, max_value=50.0, step=0.5, value=float(existing.get("years_experience", 1.0)))
+        months_out = c3.number_input("Meses fora do mercado formal", min_value=0, max_value=240, value=int(existing.get("months_out", 6)))
+        c1, c2 = st.columns(2)
+        first_job = c1.checkbox("Busca primeiro emprego / não possui experiência profissional relevante", value=existing.get("first_job", False))
+        career_change = c2.checkbox("Deseja reconstruir a trajetória ou mudar de área", value=existing.get("career_change", False))
+
+        st.markdown("#### 3. Condições socioeconômicas e de participação")
+        c1, c2, c3 = st.columns(3)
+        personal_income = c1.selectbox("Faixa de renda individual atual", ["Sem renda", "Até R$ 1.000", "R$ 1.001 a R$ 2.000", "R$ 2.001 a R$ 4.000", "Acima de R$ 4.000", "Prefiro não responder"])
+        household_income = c2.selectbox("Faixa de renda familiar", ["Até R$ 2.000", "R$ 2.001 a R$ 4.000", "R$ 4.001 a R$ 8.000", "Acima de R$ 8.000", "Prefiro não responder"])
+        income_urgency = c3.selectbox("Urgência de geração de renda", ["Baixa", "Média", "Alta"])
+
+        c1, c2, c3 = st.columns(3)
+        digital_access = c1.selectbox("Acesso digital", ["Internet e dispositivo adequados", "Somente smartphone", "Internet instável", "Sem acesso regular"])
+        digital_autonomy = c2.selectbox("Autonomia para usar ferramentas digitais", ["Alta", "Média", "Baixa", "Muito baixa"])
+        commute_minutes = c3.number_input("Tempo máximo aceitável de deslocamento (min.)", min_value=0, max_value=180, value=int(existing.get("commute_minutes", 45)))
+
+        c1, c2, c3 = st.columns(3)
+        transport_barrier = c1.checkbox("Possui dificuldade relevante de transporte/deslocamento", value=existing.get("transport_barrier", False))
+        care_responsibility = c2.checkbox("Possui responsabilidade de cuidado que afeta disponibilidade", value=existing.get("care_responsibility", False))
+        schedule_restriction = c3.checkbox("Possui restrição importante de horário", value=existing.get("schedule_restriction", False))
+
+        st.markdown("#### 4. Competências")
+        st.caption("As competências abaixo vêm da demanda atualmente analisada. A pessoa informa quais reconhece possuir; outras evidências podem ser inferidas da experiência ocupacional via CBO/QBQ e posteriormente validadas por avaliação, certificado, formador ou empregador.")
+        self_declared_skills = st.multiselect(
+            "Quais destas competências você considera possuir?",
+            demand_skill_names,
+            default=[s for s in existing.get("self_declared_skills", []) if s in demand_skill_names],
+        )
+
+        st.markdown("#### 5. Objetivos")
+        c1, c2 = st.columns(2)
+        main_goal = c1.selectbox("Principal objetivo neste momento", ["Encontrar emprego rapidamente", "Conseguir primeiro emprego", "Mudar de área", "Retomar trajetória profissional", "Melhorar renda", "Obter qualificação técnica", "Empreender"])
+        desired_area = c2.text_input("Área ou ocupação de interesse", value=existing.get("desired_area", ""), placeholder="Ex.: Logística, RH, manutenção")
+
+        consent = st.checkbox("Confirmo que as informações poderão ser usadas para orientar minha trajetória no programa e gerar análises agregadas para melhoria da política, observadas as regras de proteção de dados.", value=True)
+        submitted = st.form_submit_button("Gerar diagnóstico e jornada sugerida", type="primary", use_container_width=True)
+
+    if submitted:
+        profile = {
+            "name": name, "age": age, "neighborhood": neighborhood, "education": education,
+            "employment_status": employment_status, "availability_slots": availability,
+            "last_occupation": last_occupation, "years_experience": years_experience,
+            "months_out": months_out, "first_job": first_job, "career_change": career_change,
+            "personal_income": personal_income, "household_income": household_income,
+            "income_urgency": income_urgency, "digital_access": digital_access,
+            "digital_autonomy": digital_autonomy, "commute_minutes": commute_minutes,
+            "transport_barrier": transport_barrier, "care_responsibility": care_responsibility,
+            "schedule_restriction": schedule_restriction, "self_declared_skills": self_declared_skills,
+            "main_goal": main_goal, "desired_area": desired_area, "consent": consent,
+            "baseline_timestamp": now_iso(),
+        }
+        st.session_state.candidate_profiles[pid] = profile
+        diagnosis = diagnose_candidate(profile, demand_skill_ids)
+        st.session_state.qualifica_recommendations[pid] = diagnosis
+        add_trajectory_event(pid, "candidate_diagnosis", f"Diagnóstico preenchido; jornada sugerida: {diagnosis['initial_journey']}", "Participante + NEXO")
+        st.success("Diagnóstico registrado. A recomendação abaixo é explicável e depende de validação humana.")
+
+    profile = st.session_state.candidate_profiles.get(pid)
+    diagnosis = st.session_state.qualifica_recommendations.get(pid)
+    if not profile or not diagnosis:
+        st.warning("Preencha o formulário e clique em **Gerar diagnóstico e jornada sugerida** para produzir a análise. Nenhuma característica é atribuída automaticamente antes do preenchimento.")
+        disclaimer()
+        return
+
+    st.markdown("---")
+    st.markdown("### 6. Diagnóstico NEXO")
+    c1, c2 = st.columns([1, 1.15])
+    with c1:
+        st.markdown("#### Perfil de participação")
+        dim_df = pd.DataFrame(diagnosis["dimensions"], columns=["dimensão", "leitura"])
+        st.dataframe(dim_df, use_container_width=True, hide_index=True)
+
+        st.markdown("#### Barreiras concretas identificadas")
+        if diagnosis["barriers"]:
+            for item in diagnosis["barriers"]:
+                st.markdown(f'<span class="chip chip-warn">{item}</span>', unsafe_allow_html=True)
         else:
             st.markdown('<span class="chip chip-good">Nenhuma barreira crítica registrada</span>', unsafe_allow_html=True)
 
-    with right:
-        st.subheader("Recomendação explicável")
-        st.markdown(f'<div class="card"><h4>{rec["pathway"]}</h4><p><b>Intensidade:</b> {rec["intensity"]}</p><p>{rec["rationale"]}</p></div>', unsafe_allow_html=True)
-        st.markdown("**Competências faltantes**")
-        skill_chips(rec["missing_skills"], css="chip chip-warn")
-        st.markdown('<div class="explain"><b>Limite algorítmico</b><br>Esta recomendação não decide elegibilidade, acesso ou exclusão. Ela organiza evidências para revisão humana.</div>', unsafe_allow_html=True)
+        st.markdown("#### Linha de base para outcomes")
+        b1, b2 = st.columns(2)
+        b1.metric("Situação de trabalho", profile["employment_status"])
+        b2.metric("Renda individual", profile["personal_income"])
+        st.caption("Essa linha de base permitirá acompanhar posteriormente contratação, permanência, renda, transição ocupacional e progressão.")
 
-    st.subheader("Decisão humana")
+    with c2:
+        st.markdown("#### Evidências de competências frente à demanda")
+        comp_df = pd.DataFrame(diagnosis["evidence_rows"])
+        st.dataframe(comp_df, use_container_width=True, hide_index=True)
+        with st.expander("Competências inferidas da experiência anterior"):
+            if diagnosis["inferred_skills"]:
+                for s in diagnosis["inferred_skills"]:
+                    st.write(f"• {s}")
+                st.caption("Inferência baseada na ocupação declarada e no referencial CBO/QBQ; precisa de validação posterior.")
+            else:
+                st.write("Nenhuma competência foi inferida da ocupação anterior.")
+
+    st.markdown("### 7. Jornada sugerida")
+    j1, j2 = st.columns([1.15, .85])
+    with j1:
+        st.markdown(
+            f'<div class="decision"><b>Jornada inicial sugerida</b><br><br><span style="font-size:1.35rem;font-weight:700">{diagnosis["initial_journey"]}</span>'
+            f'<br><br>{diagnosis["rationale"]}<br><br><b>Próxima passagem potencial:</b> {diagnosis["next_journey"]}</div>',
+            unsafe_allow_html=True,
+        )
+    with j2:
+        st.markdown('<div class="card"><h4>Matriz de Passagem</h4><p>A recomendação não fixa a pessoa em uma categoria. O percurso pode avançar, ser reorganizado ou retornar a uma etapa mais protetiva conforme novas evidências.</p></div>', unsafe_allow_html=True)
+
+    st.markdown("#### Decisão humana compartilhada")
     a, b, c = st.columns(3)
-    if a.button("✓ Aceitar recomendação", type="primary", use_container_width=True):
-        st.session_state.manager_decision = "Aceita"
-        add_trajectory_event(pid, "pathway_accepted", f"Percurso aceito: {rec['pathway']}", "Gestor Público")
-        st.success("Percurso aceito e registrado no Evidence Ledger.")
-    if b.button("↔ Alterar percurso", use_container_width=True):
-        st.session_state.manager_decision = "Alterada"
-        add_trajectory_event(pid, "pathway_changed", "Recomendação alterada por revisão humana", "Gestor Público")
-        st.warning("Alteração registrada. No piloto real, o motivo deverá ser obrigatório e estruturado.")
-    if c.button("✕ Rejeitar recomendação", use_container_width=True):
-        st.session_state.manager_decision = "Rejeitada"
-        add_trajectory_event(pid, "pathway_rejected", "Recomendação rejeitada por revisão humana", "Gestor Público")
-        st.error("Rejeição registrada para posterior análise de divergência humano-algoritmo.")
+    if a.button("✓ Validar trajetória", type="primary", use_container_width=True):
+        st.session_state.manager_decision = "Validada"
+        add_trajectory_event(pid, "pathway_accepted", f"Trajetória validada: {diagnosis['initial_journey']}", "Gestor / equipe técnica")
+        st.success("Trajetória validada e registrada no Evidence Ledger.")
+    if b.button("↔ Ajustar trajetória", use_container_width=True):
+        st.session_state.manager_decision = "Ajuste solicitado"
+        add_trajectory_event(pid, "pathway_changed", "Trajetória ajustada após revisão humana/compartilhada", "Gestor / equipe técnica")
+        st.warning("Ajuste registrado. No piloto, o motivo deverá ser obrigatório e estruturado.")
+    if c.button("✕ Não adotar recomendação", use_container_width=True):
+        st.session_state.manager_decision = "Não adotada"
+        add_trajectory_event(pid, "pathway_rejected", "Recomendação não adotada após revisão humana", "Gestor / equipe técnica")
+        st.error("Decisão registrada para análise posterior da divergência humano-sistema.")
+
+    st.markdown("### Como esse diagnóstico alimenta a gestão pública")
+    g1, g2, g3, g4 = st.columns(4)
+    g1.markdown('<div class="card"><h4>Oferta</h4><p>Agrega gaps recorrentes para orientar quais qualificações ofertar.</p></div>', unsafe_allow_html=True)
+    g2.markdown('<div class="card"><h4>Conteúdo</h4><p>Mostra quais competências e barreiras exigem ajuste de currículo e apoio.</p></div>', unsafe_allow_html=True)
+    g3.markdown('<div class="card"><h4>Território</h4><p>Permite analisar residência, mobilidade, acesso digital e disponibilidade.</p></div>', unsafe_allow_html=True)
+    g4.markdown('<div class="card"><h4>Efetividade</h4><p>Conecta linha de base a emprego, permanência, renda e progressão.</p></div>', unsafe_allow_html=True)
 
     if st.session_state.trajectory_events:
-        st.subheader("Linha do tempo da trajetória")
-        df = pd.DataFrame(st.session_state.trajectory_events)
-        st.dataframe(df[df.participant_id == pid], use_container_width=True, hide_index=True)
+        with st.expander("Linha do tempo da trajetória"):
+            df = pd.DataFrame(st.session_state.trajectory_events)
+            st.dataframe(df[df.participant_id == pid], use_container_width=True, hide_index=True)
     disclaimer()
 
 
@@ -1003,7 +1252,11 @@ def page_learning():
     rec = recommend_path(pid, demand_skill_ids)
 
     st.markdown(f"### Blueprint para {p['name']}")
-    st.caption(f"Percurso recomendado: {rec['pathway']}")
+    qualifica_rec = st.session_state.qualifica_recommendations.get(pid)
+    if qualifica_rec:
+        st.caption(f"Jornada Qualifica+ sugerida: {qualifica_rec['initial_journey']} • passagem potencial: {qualifica_rec['next_journey']}")
+    else:
+        st.caption(f"Percurso técnico demonstrativo: {rec['pathway']}")
 
     modules = rec["recommended_modules"]
     if not modules:
@@ -1096,13 +1349,13 @@ def page_experiments():
 # SIDEBAR / ROUTER
 # -----------------------------
 st.sidebar.markdown("# NEXO Qualifica+")
-st.sidebar.caption("CPSI MVP v1.2 — CBO/QBQ")
+st.sidebar.caption("CPSI MVP v1.4 — diagnóstico + CBO/QBQ")
 st.sidebar.markdown("---")
 
 pages = [
     "Visão Geral",
     "Demanda & Competências",
-    "Trajetórias",
+    "Diagnóstico & Trajetória",
     "Engenharia Educacional",
     "Experimentos & Outcomes",
 ]
@@ -1118,7 +1371,7 @@ if page == "Visão Geral":
     page_overview()
 elif page == "Demanda & Competências":
     page_demand_skills()
-elif page == "Trajetórias":
+elif page == "Diagnóstico & Trajetória":
     page_trajectory()
 elif page == "Engenharia Educacional":
     page_learning()
