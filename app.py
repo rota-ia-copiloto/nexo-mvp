@@ -1459,64 +1459,140 @@ def page_learning():
 
 def page_experiments():
     page_header(
-        "LEARNING-TO-OUTCOME + POLICY EXPERIMENT",
-        "Experimentos & Outcomes",
-        "Relaciona intervenção, aprendizagem e resultado profissional; compara coortes e orienta continuar, reformular ou escalar.",
+        "RESULTADOS & IMPACTOS",
+        "Resultados da qualificação",
+        "Compara cursos e trilhas a partir de conclusão, alocação profissional, permanência e evolução de renda para apoiar decisões de continuidade, revisão ou descontinuação.",
     )
-    st.warning("Os resultados abaixo são sintéticos e servem somente para demonstrar a lógica experimental do MVP.")
-
-    st.subheader("Hipótese H2")
-    st.markdown(
-        '> **Se** participantes com barreiras de permanência receberem acompanhamento estruturado durante a formação, **então** a conclusão e a conversão para inserção laboral tendem a melhorar, **porque** barreiras são tratadas antes da ruptura.'
+    st.warning(
+        "Os resultados desta versão são sintéticos e servem apenas para demonstrar a lógica analítica do MVP. "
+        "No piloto, os indicadores serão alimentados por registros do Qualifica+, instituições formadoras, empresas e fontes autorizadas de acompanhamento laboral."
     )
 
-    st.dataframe(EXPERIMENT_DATA, use_container_width=True, hide_index=True)
+    course_results = pd.DataFrame([
+        {"curso": "Operações Logísticas", "participantes": 80, "conclusao": 0.86, "alocacao_90d": 0.64, "retencao_6m": 0.56, "renda_entrada": 1480, "renda_6m": 2260, "variacao_renda": 0.53},
+        {"curso": "Eletricidade Industrial", "participantes": 42, "conclusao": 0.79, "alocacao_90d": 0.71, "retencao_6m": 0.62, "renda_entrada": 1720, "renda_6m": 2810, "variacao_renda": 0.63},
+        {"curso": "Assistente Administrativo", "participantes": 65, "conclusao": 0.88, "alocacao_90d": 0.38, "retencao_6m": 0.31, "renda_entrada": 1510, "renda_6m": 1840, "variacao_renda": 0.22},
+        {"curso": "Recrutamento & Seleção", "participantes": 36, "conclusao": 0.83, "alocacao_90d": 0.58, "retencao_6m": 0.50, "renda_entrada": 1680, "renda_6m": 2360, "variacao_renda": 0.40},
+        {"curso": "Introdução ao Atendimento", "participantes": 58, "conclusao": 0.76, "alocacao_90d": 0.21, "retencao_6m": 0.16, "renda_entrada": 1490, "renda_6m": 1570, "variacao_renda": 0.05},
+    ])
 
-    summary = experiment_summary()
-    m = summary["metrics"]
-    cols = st.columns(3)
-    cols[0].metric("Conclusão A", f"{m['completion_A']:.0%}")
-    cols[1].metric("Conclusão B", f"{m['completion_B']:.0%}", delta=f"+{summary['completion_gain']:.0%}")
-    cols[2].metric("Retenção B", f"{m['retention_B']:.0%}")
+    course_results["indice_resultado"] = (
+        course_results["conclusao"] * 0.15
+        + course_results["alocacao_90d"] * 0.35
+        + course_results["retencao_6m"] * 0.30
+        + course_results["variacao_renda"].clip(upper=1) * 0.20
+    )
 
-    st.subheader("Decisão baseada em evidência")
-    st.markdown(f'<div class="decision"><b>Recomendação do Policy Experiment Engine</b><br><br>{summary["recommendation"]}</div>', unsafe_allow_html=True)
+    def result_status(row):
+        if row["alocacao_90d"] >= 0.55 and row["retencao_6m"] >= 0.45:
+            return "Resultado laboral consistente"
+        if row["alocacao_90d"] < 0.30 and row["variacao_renda"] < 0.12:
+            return "Baixo impacto empregatício"
+        return "Requer revisão / acompanhamento"
 
-    st.subheader("Outcome longitudinal — caso demonstrativo")
-    pid = st.session_state.selected_participant
-    p = participant_record(pid)
-    outcome_steps = pd.DataFrame([
-        ["Ingresso", "Registrado", "Cadastro Qualifica+"],
-        ["Participação", "Registrado", "Eventos da trajetória"],
-        ["Conclusão", "Demonstrativo", "Instituição formadora"],
-        ["Competência demonstrada", "Demonstrativo", "Avaliação prática"],
-        ["Encaminhamento", "Demonstrativo", "Balcão de Empregos"],
-        ["Contratação", "Demonstrativo", "Empresa"],
-        ["Permanência", "Demonstrativo", "Retorno empresarial / fonte autorizada"],
-    ], columns=["etapa", "status", "fonte"])
-    st.markdown(f"**Participante:** {p['name']}")
-    st.dataframe(outcome_steps, use_container_width=True, hide_index=True)
+    course_results["leitura"] = course_results.apply(result_status, axis=1)
 
-    st.subheader("Evidence Ledger")
-    if not st.session_state.evidence_log:
-        st.info("Interaja com as páginas de Demanda, Trajetórias e Engenharia Educacional para gerar evidências no ledger.")
-    else:
-        for ev in reversed(st.session_state.evidence_log[-10:]):
+    st.markdown("### 1. Visão executiva")
+    best_ret = course_results.loc[course_results["retencao_6m"].idxmax()]
+    best_job = course_results.loc[course_results["alocacao_90d"].idxmax()]
+    best_income = course_results.loc[course_results["variacao_renda"].idxmax()]
+    low_impact = course_results[course_results["leitura"] == "Baixo impacto empregatício"]
+
+    a, b, c, d = st.columns(4)
+    a.metric("Maior retenção em 6 meses", best_ret["curso"], f"{best_ret['retencao_6m']:.0%}")
+    b.metric("Maior alocação em até 90 dias", best_job["curso"], f"{best_job['alocacao_90d']:.0%}")
+    c.metric("Maior evolução de renda", best_income["curso"], f"+{best_income['variacao_renda']:.0%}")
+    d.metric("Ofertas com baixo impacto", int(len(low_impact)))
+
+    st.markdown("### 2. Comparativo de resultados por curso")
+    display = course_results.copy()
+    display["Conclusão"] = (display["conclusao"] * 100).round(0).astype(int).astype(str) + "%"
+    display["Alocação até 90d"] = (display["alocacao_90d"] * 100).round(0).astype(int).astype(str) + "%"
+    display["Retenção 6m"] = (display["retencao_6m"] * 100).round(0).astype(int).astype(str) + "%"
+    display["Renda inicial"] = display["renda_entrada"].map(lambda x: f"R$ {x:,.0f}".replace(",", "."))
+    display["Renda em 6m"] = display["renda_6m"].map(lambda x: f"R$ {x:,.0f}".replace(",", "."))
+    display["Evolução da renda"] = (display["variacao_renda"] * 100).round(0).astype(int).astype(str).map(lambda x: "+" + x + "%")
+    result_table = display[["curso", "participantes", "Conclusão", "Alocação até 90d", "Retenção 6m", "Renda inicial", "Renda em 6m", "Evolução da renda", "leitura"]].rename(
+        columns={"curso": "Curso / trilha", "participantes": "Participantes", "leitura": "Leitura gerencial"}
+    )
+    st.dataframe(result_table, use_container_width=True, hide_index=True)
+
+    left, right = st.columns(2)
+    with left:
+        st.markdown("#### Alocação e permanência")
+        chart_job = course_results.set_index("curso")[["alocacao_90d", "retencao_6m"]].copy() * 100
+        chart_job.columns = ["Alocação em 90 dias (%)", "Retenção em 6 meses (%)"]
+        st.bar_chart(chart_job, use_container_width=True)
+    with right:
+        st.markdown("#### Evolução de renda")
+        chart_income = course_results.set_index("curso")[["variacao_renda"]].copy() * 100
+        chart_income.columns = ["Aumento de renda (%)"]
+        st.bar_chart(chart_income, use_container_width=True)
+
+    st.markdown("### 3. Leitura para decisão pública")
+    ranked = course_results.sort_values("indice_resultado", ascending=False)
+    strongest = ranked.iloc[0]
+    review = course_results[(course_results["alocacao_90d"] < 0.45) | (course_results["retencao_6m"] < 0.35) | (course_results["variacao_renda"] < 0.15)]
+
+    c1, c2 = st.columns([1.15, 1])
+    with c1:
+        st.markdown(
+            f'<div class="decision"><b>Oferta com melhor sinal de efetividade</b><br><br>'
+            f'<b>{strongest["curso"]}</b> combina conclusão de {strongest["conclusao"]:.0%}, alocação de {strongest["alocacao_90d"]:.0%}, '
+            f'retenção de {strongest["retencao_6m"]:.0%} e evolução média de renda de +{strongest["variacao_renda"]:.0%}.<br><br>'
+            '<b>Uso gerencial:</b> considerar continuidade/escala, condicionada à validação dos dados, custo por outcome e comparação entre públicos.</div>',
+            unsafe_allow_html=True,
+        )
+    with c2:
+        if low_impact.empty:
+            st.success("Nenhuma oferta foi classificada como baixo impacto no conjunto demonstrativo.")
+        else:
+            names = ", ".join(low_impact["curso"].tolist())
             st.markdown(
-                f'<div class="evidence"><b>{ev["event_type"]}</b> • {ev["timestamp"]}<br>{ev["description"]}<br><span class="small-muted">Ator: {ev["actor"]} • Fonte: {ev["source"]} • Hash: {ev["hash"]}</span></div>',
+                f'<div class="card"><h4>Baixo impacto empregatício</h4><p><b>{names}</b></p>'
+                '<p>Conclusão, isoladamente, não é suficiente. O NEXO sinaliza ofertas com baixa conversão para trabalho, permanência e renda para revisão antes de nova contratação.</p></div>',
                 unsafe_allow_html=True,
             )
 
-    if st.button("Registrar decisão: continuar teste", type="primary"):
-        add_evidence("experiment_decision", "Gestor Público", "Decisão: continuar teste com nova coorte antes de escala")
-        st.success("Decisão registrada com trilha de evidência.")
+    st.markdown("### 4. Cursos que exigem revisão")
+    if review.empty:
+        st.success("Nenhum curso atingiu os critérios demonstrativos de revisão.")
+    else:
+        review_rows = []
+        for _, r in review.iterrows():
+            reasons = []
+            if r["alocacao_90d"] < 0.45:
+                reasons.append("baixa alocação profissional")
+            if r["retencao_6m"] < 0.35:
+                reasons.append("baixa permanência no emprego")
+            if r["variacao_renda"] < 0.15:
+                reasons.append("baixo efeito sobre renda")
+            action = "Revisar matriz, aderência à demanda e estratégia de conexão com empresas"
+            if r["leitura"] == "Baixo impacto empregatício":
+                action = "Reformular antes de nova contratação; considerar suspensão se o padrão persistir"
+            review_rows.append({"Curso / trilha": r["curso"], "Sinais de atenção": "; ".join(reasons), "Ação sugerida": action})
+        st.dataframe(pd.DataFrame(review_rows), use_container_width=True, hide_index=True)
+
+    st.markdown("### 5. Como o NEXO deve medir efetividade")
+    st.markdown(
+        "A análise de resultados não deve parar na **conclusão do curso**. Para cada oferta, o NEXO acompanha uma cadeia de outcomes:\n\n"
+        "**ingresso → conclusão → competência demonstrada → encaminhamento → alocação profissional → permanência → evolução de renda**.\n\n"
+        "Isso permite distinguir cursos que têm boa adesão, mas pouco efeito empregatício, daqueles que efetivamente alteram a trajetória econômica dos participantes."
+    )
+    st.info(
+        "No piloto real, as comparações deverão ser segmentadas por jornada Qualifica+, perfil socioeconômico, território, ocupação, instituição formadora e empresa, evitando atribuir causalidade apenas a diferenças descritivas."
+    )
+
+    if st.button("Registrar análise de resultados no Evidence Ledger", type="primary"):
+        add_evidence("outcome_analysis", "Gestor Público", f"Análise comparativa de {len(course_results)} ofertas formativas registrada: alocação, retenção e evolução de renda.", source="Resultados demonstrativos / NEXO")
+        st.success("Análise registrada com trilha de evidência.")
     disclaimer()
 
 # -----------------------------
 # SIDEBAR / ROUTER
 # -----------------------------
 st.sidebar.markdown("# NEXO Qualifica+")
-st.sidebar.caption("CPSI MVP v1.5 — oferta + diagnóstico + CBO/QBQ")
+st.sidebar.caption("CPSI MVP v1.6 — resultados + oferta + diagnóstico + CBO/QBQ")
 st.sidebar.markdown("---")
 
 pages = [
@@ -1524,7 +1600,7 @@ pages = [
     "Demanda & Competências",
     "Diagnóstico & Trajetória",
     "Planejamento & Engenharia",
-    "Experimentos & Outcomes",
+    "Resultados & Impactos",
 ]
 page = st.sidebar.radio("Navegação", pages)
 
@@ -1542,5 +1618,5 @@ elif page == "Diagnóstico & Trajetória":
     page_trajectory()
 elif page == "Planejamento & Engenharia":
     page_learning()
-elif page == "Experimentos & Outcomes":
+elif page == "Resultados & Impactos":
     page_experiments()
