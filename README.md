@@ -1,51 +1,15 @@
-# NEXO Qualifica+ — CPSI MVP v1.2
+# NEXO Qualifica+ — CPSI MVP v1.5
 
-MVP demonstrativo para submissão ao CPSI de qualificação profissional de Itajaí.
+Atualização da tela de Engenharia Educacional para uma lógica gerencial de planejamento da oferta.
 
-## Atualização v1.2 — inteligência ocupacional ampliada
+## Principais mudanças
+- Renomeia a navegação para `Planejamento & Engenharia`.
+- Cruza demanda produtiva, competências CBO/QBQ e diagnósticos agregados das jornadas.
+- Mostra gaps recorrentes, barreiras, distribuição das jornadas Qualifica+ e potencial de aderência.
+- Recomenda contratação, abertura de turma, ampliação ou monitoramento da oferta.
+- Gera recomendações de revisão de matriz curricular e desenho pedagógico agregado.
+- Mantém o Learning-to-Outcome loop para retroalimentar conteúdo, metodologia e escala.
+- Registra recomendação de oferta no Evidence Ledger.
 
-A tela **Demanda & Competências** passou a usar uma base ocupacional local derivada da matriz oficial CBO/QBQ fornecida ao projeto.
-
-### Base operacional carregada
-- 2.673 ocupações CBO/QBQ
-- perfil e síntese ocupacional
-- conhecimentos priorizados
-- habilidades priorizadas
-- atitudes priorizadas
-- nível de qualificação QBQ quando disponível
-
-Arquivo: `occupational_knowledge.json.gz`
-
-### Fontes de referência da arquitetura
-- CBO — Classificação Brasileira de Ocupações / MTE
-- QBQ — Quadro Brasileiro de Qualificações / MTE
-- GBO — Guia Brasileiro de Ocupações / MTE-OIT
-- CNCT — Catálogo Nacional de Cursos Técnicos / MEC
-- Monitor de Profissões — MEC/ABDI
-- ESCO — European Skills, Competences, Qualifications and Occupations
-
-No MVP v1.2, **CBO/QBQ são a base operacional embarcada**. CNCT é usado para referências formativas demonstrativas. GBO, Monitor de Profissões e ESCO estão explicitados como camadas complementares de mercado, formação e enriquecimento/interoperabilidade previstas para o piloto.
-
-## Fluxo do MVP
-
-Demanda → ocupação CBO → competências QBQ → validação humana → trajetória → intervenção → outcome → decisão.
-
-## Arquivos necessários no Streamlit
-
-Na raiz do repositório:
-
-- `app.py`
-- `occupational_knowledge.json.gz`
-- `requirements.txt`
-- `README.md`
-
-## Executar localmente
-
-```bash
-pip install -r requirements.txt
-streamlit run app.py
-```
-
-## Observação
-
-Dados de participantes, empresas, coortes e resultados continuam sintéticos. A base ocupacional CBO/QBQ usada para ampliar o motor de demanda e competências é de referência oficial e foi transformada em formato compacto para o protótipo.
+## Atualização no GitHub
+Substituir apenas o `app.py` da raiz. Manter `occupational_knowledge.json.gz` no mesmo diretório.

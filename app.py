@@ -354,6 +354,7 @@ def init_state():
         "last_analyzed_text": "",
         "demand_quantity": 20,
         "demand_horizon": "Próximos 3 meses",
+        "demand_company": "Conexão RH",
         "remap_target": {},
         "occupation_matches": [],
         "selected_cbo": None,
@@ -758,7 +759,8 @@ def page_demand_skills():
     st.subheader("1. Descreva a necessidade")
     c1, c2, c3 = st.columns([1.2, .6, .8])
     with c1:
-        company = st.selectbox("Empresa / origem", ["Atlântico Logística", "Empresa Alfa", "Conexão RH", "Balcão de Empregos"])
+        company = st.selectbox("Empresa / origem", ["Atlântico Logística", "Empresa Alfa", "Conexão RH", "Balcão de Empregos"], index=["Atlântico Logística", "Empresa Alfa", "Conexão RH", "Balcão de Empregos"].index(st.session_state.get("demand_company", "Conexão RH")))
+        st.session_state.demand_company = company
     with c2:
         quantity = st.number_input("Quantidade prevista", min_value=1, max_value=5000, value=int(st.session_state.demand_quantity), step=1)
         st.session_state.demand_quantity = quantity
@@ -1240,55 +1242,220 @@ def page_trajectory():
 
 def page_learning():
     page_header(
-        "ENGENHARIA EDUCACIONAL",
-        "Intervenção Formativa",
-        "Converte gaps de competências em objetivos de aprendizagem, experiências e avaliações — sem virar um LMS.",
+        "PLANEJAMENTO DA OFERTA & ENGENHARIA EDUCACIONAL",
+        "O que contratar, ampliar ou atualizar",
+        "Cruza demanda produtiva, competências requeridas e diagnósticos agregados das jornadas para apoiar decisões de oferta e revisão curricular.",
     )
 
-    pid = st.session_state.selected_participant
-    p = participant_record(pid)
+    st.info(
+        "**Como ler esta tela:** mercado informa o que precisa → diagnósticos mostram o que a população atendida já possui e onde estão os gaps → "
+        "o NEXO transforma esse cruzamento em prioridades de contratação, ampliação e atualização de matrizes formativas."
+    )
+
     extracted = extract_skills(st.session_state.selected_demand_text)
     demand_skill_ids = required_skills_from_demand(extracted)
-    rec = recommend_path(pid, demand_skill_ids)
+    demand_skill_names = [SKILLS[sid]["name"] for sid in demand_skill_ids if sid in SKILLS]
+    matches = occupation_matches(st.session_state.selected_demand_text, top_n=3)
+    top_occ = matches[0]["record"] if matches else {}
+    occ_name = top_occ.get("occupation", "Demanda ocupacional em análise")
+    cbo = top_occ.get("cbo", "—")
+    quantity = int(st.session_state.get("demand_quantity", 0) or 0)
+    horizon = st.session_state.get("demand_horizon", "—")
+    company = st.session_state.get("demand_company", "Origem não registrada")
 
-    st.markdown(f"### Blueprint para {p['name']}")
-    qualifica_rec = st.session_state.qualifica_recommendations.get(pid)
-    if qualifica_rec:
-        st.caption(f"Jornada Qualifica+ sugerida: {qualifica_rec['initial_journey']} • passagem potencial: {qualifica_rec['next_journey']}")
+    # Diagnósticos preenchidos nesta sessão constituem a camada de oferta humana.
+    diagnoses = st.session_state.get("qualifica_recommendations", {})
+    profiles = st.session_state.get("candidate_profiles", {})
+    diag_items = [(pid, d) for pid, d in diagnoses.items() if pid in profiles]
+
+    gap_counter = {}
+    barrier_counter = {}
+    journey_counter = {}
+    alignments = []
+    for pid, d in diag_items:
+        alignments.append(float(d.get("alignment", 0)))
+        journey = d.get("initial_journey", "Não classificada")
+        journey_counter[journey] = journey_counter.get(journey, 0) + 1
+        for b in d.get("barriers", []):
+            barrier_counter[b] = barrier_counter.get(b, 0) + 1
+        for row in d.get("evidence_rows", []):
+            if row.get("situação", "").startswith("Gap"):
+                skill = row.get("competência demandada", "Competência não identificada")
+                gap_counter[skill] = gap_counter.get(skill, 0) + 1
+
+    n_profiles = len(diag_items)
+    potential_candidates = sum(1 for _, d in diag_items if float(d.get("alignment", 0)) >= .34)
+    mean_alignment = sum(alignments) / len(alignments) if alignments else 0
+
+    st.markdown("### 1. Panorama da demanda produtiva")
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Demanda sinalizada", quantity)
+    m2.metric("Ocupação de referência", occ_name[:28] + ("…" if len(occ_name) > 28 else ""))
+    m3.metric("CBO", cbo)
+    m4.metric("Horizonte", horizon)
+    st.caption(f"Origem: **{company}**. As competências abaixo derivam da demanda analisada e dos referenciais CBO/QBQ, após validação humana.")
+    if demand_skill_names:
+        st.markdown("**Competências mais relevantes para a demanda atual**")
+        for s in demand_skill_names[:10]:
+            st.markdown(f'<span class="chip">{s}</span>', unsafe_allow_html=True)
     else:
-        st.caption(f"Percurso técnico demonstrativo: {rec['pathway']}")
+        st.warning("Ainda não há competências operacionais associadas à demanda. Valide a demanda na página Demanda & Competências.")
 
-    modules = rec["recommended_modules"]
-    if not modules:
-        st.success("Não há módulo técnico crítico sugerido para o conjunto atual de competências.")
+    st.markdown("### 2. O que os diagnósticos individuais revelam em conjunto")
+    a, b, c, d = st.columns(4)
+    a.metric("Diagnósticos agregados", n_profiles)
+    b.metric("Potencialmente aderentes", potential_candidates)
+    c.metric("Aderência média à demanda", f"{mean_alignment:.0%}" if n_profiles else "—")
+    d.metric("Gaps distintos observados", len(gap_counter))
+
+    if n_profiles:
+        left, right = st.columns(2)
+        with left:
+            st.markdown("#### Gaps de competências mais recorrentes")
+            gap_df = pd.DataFrame(
+                sorted(gap_counter.items(), key=lambda x: x[1], reverse=True),
+                columns=["competência", "pessoas com gap"],
+            )
+            if gap_df.empty:
+                st.success("Nenhum gap recorrente identificado entre os diagnósticos preenchidos.")
+            else:
+                gap_df["% dos diagnósticos"] = (gap_df["pessoas com gap"] / n_profiles * 100).round(0).astype(int).astype(str) + "%"
+                st.dataframe(gap_df.head(10), use_container_width=True, hide_index=True)
+        with right:
+            st.markdown("#### Barreiras que afetam desenho e permanência")
+            bar_df = pd.DataFrame(
+                sorted(barrier_counter.items(), key=lambda x: x[1], reverse=True),
+                columns=["barreira", "ocorrências"],
+            )
+            if bar_df.empty:
+                st.info("Nenhuma barreira recorrente registrada nos diagnósticos atuais.")
+            else:
+                bar_df["% dos diagnósticos"] = (bar_df["ocorrências"] / n_profiles * 100).round(0).astype(int).astype(str) + "%"
+                st.dataframe(bar_df.head(8), use_container_width=True, hide_index=True)
+
+        st.markdown("#### Distribuição das jornadas Qualifica+")
+        journey_df = pd.DataFrame(
+            sorted(journey_counter.items(), key=lambda x: x[1], reverse=True),
+            columns=["jornada", "participantes"],
+        )
+        journey_df["%"] = (journey_df["participantes"] / n_profiles * 100).round(0).astype(int).astype(str) + "%"
+        st.dataframe(journey_df, use_container_width=True, hide_index=True)
     else:
-        for sid in modules:
-            bp = LEARNING_BLUEPRINTS.get(sid, {
-                "objective": f"Desenvolver a competência {SKILLS[sid]['name']} em nível operacional.",
-                "strategy": "Prática guiada + resolução de situação-problema",
-                "assessment": "Avaliação prática estruturada",
-                "hours": 8,
-            })
-            with st.container(border=True):
-                st.markdown(f"#### {SKILLS[sid]['name']}")
-                a, b = st.columns([3, 1])
-                a.write(f"**Objetivo de aprendizagem:** {bp['objective']}")
-                b.metric("Carga sugerida", f"{bp['hours']}h")
-                st.write(f"**Estratégia:** {bp['strategy']}")
-                st.write(f"**Avaliação:** {bp['assessment']}")
+        st.warning(
+            "Ainda não há diagnósticos preenchidos nesta sessão. Preencha ao menos um perfil em **Diagnóstico & Trajetória** para que o NEXO passe a cruzar demanda produtiva e características da população atendida."
+        )
 
-    st.subheader("Teste de desenho adaptativo")
+    st.markdown("### 3. Prioridades de oferta formativa")
+    cnct = suggest_cnct_courses(st.session_state.selected_demand_text)
+    suggested_course = cnct[0] if cnct else f"Trilha de qualificação — {occ_name}"
+    top_gaps = [x[0] for x in sorted(gap_counter.items(), key=lambda x: x[1], reverse=True)[:4]] or demand_skill_names[:4]
+    digital_need = any("digital" in normalize_text(k) for k in barrier_counter.keys())
+    care_or_schedule = any(any(term in normalize_text(k) for term in ["cuidado", "horario", "deslocamento", "transporte"]) for k in barrier_counter.keys())
+
+    if quantity >= 30 and (not n_profiles or potential_candidates >= max(1, n_profiles // 3)):
+        current_action = "Contratar / abrir turma piloto"
+        priority = "Alta"
+    elif quantity >= 10:
+        current_action = "Estruturar oferta focalizada"
+        priority = "Média"
+    else:
+        current_action = "Monitorar demanda antes de abrir turma"
+        priority = "Exploratória"
+
+    portfolio = pd.DataFrame([
+        {
+            "ocupação / família": occ_name,
+            "demanda sinalizada": quantity,
+            "pessoas diagnosticadas": n_profiles,
+            "potencialmente aderentes": potential_candidates,
+            "gaps prioritários": ", ".join(top_gaps[:3]) if top_gaps else "A validar",
+            "ação recomendada": current_action,
+            "prioridade": priority,
+        },
+        {
+            "ocupação / família": "Operações logísticas (exemplo demonstrativo)",
+            "demanda sinalizada": 120,
+            "pessoas diagnosticadas": 86,
+            "potencialmente aderentes": 64,
+            "gaps prioritários": "ERP; gestão de estoque; expedição",
+            "ação recomendada": "Contratar trilha de 40–60h",
+            "prioridade": "Alta",
+        },
+        {
+            "ocupação / família": "Eletricidade industrial (exemplo demonstrativo)",
+            "demanda sinalizada": 40,
+            "pessoas diagnosticadas": 24,
+            "potencialmente aderentes": 18,
+            "gaps prioritários": "Leitura técnica; segurança; prática aplicada",
+            "ação recomendada": "Ampliar oferta técnica / validar certificações",
+            "prioridade": "Média",
+        },
+    ])
+    st.dataframe(portfolio, use_container_width=True, hide_index=True)
+    st.caption("A primeira linha responde à demanda atualmente analisada. As linhas adicionais são demonstrativas para evidenciar como o módulo consolida um portfólio de decisões quando múltiplos sinais forem integrados.")
+
+    st.markdown("### 4. Engenharia educacional: o que a matriz precisa conter ou revisar")
+    curriculum_rows = []
+    for skill in (top_gaps or demand_skill_names[:6]):
+        curriculum_rows.append({
+            "competência / conteúdo": skill,
+            "pressão da demanda": "Alta" if skill in top_gaps[:3] else "Média",
+            "gap na população": "Alto" if skill in top_gaps[:3] and n_profiles else "A validar",
+            "decisão curricular": "Adicionar ou ampliar prática aplicada" if skill in top_gaps[:3] else "Manter e monitorar",
+        })
+    if digital_need:
+        curriculum_rows.append({
+            "competência / conteúdo": "Inclusão e autonomia digital",
+            "pressão da demanda": "Transversal",
+            "gap na população": "Recorrente",
+            "decisão curricular": "Inserir módulo de base / apoio digital antes ou junto da trilha técnica",
+        })
+    if care_or_schedule:
+        curriculum_rows.append({
+            "competência / conteúdo": "Desenho de participação e permanência",
+            "pressão da demanda": "—",
+            "gap na população": "Barreira operacional",
+            "decisão curricular": "Rever horários, formato, tutoria e estratégias de permanência",
+        })
+    curriculum_df = pd.DataFrame(curriculum_rows)
+    if curriculum_df.empty:
+        st.info("Valide competências e preencha diagnósticos para gerar recomendações de matriz formativa.")
+    else:
+        st.dataframe(curriculum_df, use_container_width=True, hide_index=True)
+
     c1, c2 = st.columns(2)
     with c1:
-        st.markdown('<div class="card"><h4>Configuração A — Padrão</h4><p>Trilha técnica direta, sem apoio adicional.</p></div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="card"><h4>Oferta sugerida</h4><p><b>{suggested_course}</b></p>'
+            f'<p>Ação: {current_action}</p><p>Competências críticas: {", ".join(top_gaps[:4]) if top_gaps else "a validar"}.</p></div>',
+            unsafe_allow_html=True,
+        )
     with c2:
-        st.markdown('<div class="card"><h4>Configuração B — Adaptativa</h4><p>Trilha técnica + preparação funcional/digital + acompanhamento conforme barreira registrada.</p></div>', unsafe_allow_html=True)
+        journey_note = ", ".join([f"{k}: {v}" for k, v in sorted(journey_counter.items(), key=lambda x: x[1], reverse=True)]) if journey_counter else "sem diagnósticos agregados"
+        st.markdown(
+            f'<div class="card"><h4>Desenho pedagógico por perfil agregado</h4><p>{journey_note}</p>'
+            f'<p>O desenho da oferta deve variar em intensidade de apoio, inclusão digital, prática, tutoria e acompanhamento conforme as jornadas predominantes — sem criar um curso artesanal por pessoa.</p></div>',
+            unsafe_allow_html=True,
+        )
 
-    if st.button("Registrar intervenção para o participante", type="primary"):
-        add_trajectory_event(pid, "learning_intervention", "Blueprint formativo vinculado à trajetória", "Equipe Qualifica+")
-        st.success("Intervenção registrada. O outcome poderá ser relacionado à decisão e à formação aplicada.")
+    st.markdown("### 5. Como outcomes atualizam a oferta")
+    st.markdown(
+        '<div class="decision"><b>Learning-to-Outcome loop</b><br><br>'
+        'Demanda do mercado → matriz formativa → formação → aprendizagem → contratação/permanência/renda → feedback empresarial e do participante → revisão de conteúdo, metodologia ou decisão de escala.'
+        '<br><br><b>Uso gerencial:</b> cursos com boa conclusão mas baixa contratação exigem revisão de aderência; cursos com contratação mas baixa permanência exigem revisão de competências, preparação funcional ou acompanhamento.</div>',
+        unsafe_allow_html=True,
+    )
+
+    if st.button("Registrar recomendação de oferta", type="primary"):
+        add_evidence(
+            "training_portfolio_recommendation",
+            "Gestor Público",
+            f"Oferta recomendada: {suggested_course}; ação: {current_action}; prioridade: {priority}",
+            source="NEXO — Planejamento da Oferta",
+        )
+        st.success("Recomendação de oferta registrada no Evidence Ledger.")
+
     disclaimer()
-
 
 def page_experiments():
     page_header(
@@ -1349,14 +1516,14 @@ def page_experiments():
 # SIDEBAR / ROUTER
 # -----------------------------
 st.sidebar.markdown("# NEXO Qualifica+")
-st.sidebar.caption("CPSI MVP v1.4 — diagnóstico + CBO/QBQ")
+st.sidebar.caption("CPSI MVP v1.5 — oferta + diagnóstico + CBO/QBQ")
 st.sidebar.markdown("---")
 
 pages = [
     "Visão Geral",
     "Demanda & Competências",
     "Diagnóstico & Trajetória",
-    "Engenharia Educacional",
+    "Planejamento & Engenharia",
     "Experimentos & Outcomes",
 ]
 page = st.sidebar.radio("Navegação", pages)
@@ -1373,7 +1540,7 @@ elif page == "Demanda & Competências":
     page_demand_skills()
 elif page == "Diagnóstico & Trajetória":
     page_trajectory()
-elif page == "Engenharia Educacional":
+elif page == "Planejamento & Engenharia":
     page_learning()
 elif page == "Experimentos & Outcomes":
     page_experiments()
