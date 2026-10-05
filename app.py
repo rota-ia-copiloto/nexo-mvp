@@ -71,6 +71,11 @@ SKILLS = {
     "SK010": {"name": "Resolução de problemas", "type": "Transversal"},
     "SK011": {"name": "Excel básico", "type": "Digital"},
     "SK012": {"name": "Atendimento", "type": "Transversal"},
+    "SK013": {"name": "Recrutamento e seleção", "type": "Técnica"},
+    "SK014": {"name": "Triagem de currículos", "type": "Técnica"},
+    "SK015": {"name": "Entrevista por competências", "type": "Técnica"},
+    "SK016": {"name": "Sistemas de recrutamento / ATS", "type": "Digital"},
+    "SK017": {"name": "Análise de perfil", "type": "Técnica"},
 }
 
 KEYWORD_TO_SKILL = {
@@ -92,6 +97,17 @@ KEYWORD_TO_SKILL = {
     "problema": "SK010",
     "excel": "SK011",
     "atendimento": "SK012",
+    "recrutador": "SK013",
+    "recrutadores": "SK013",
+    "recrutamento": "SK013",
+    "seleção": "SK013",
+    "currículo": "SK014",
+    "curriculos": "SK014",
+    "triagem": "SK014",
+    "entrevista": "SK015",
+    "ats": "SK016",
+    "sistema de recrutamento": "SK016",
+    "perfil": "SK017",
 }
 
 DEFAULT_DEMAND_TEXT = (
@@ -169,6 +185,11 @@ def init_state():
         "selected_demand_text": DEFAULT_DEMAND_TEXT,
         "demo_stage": 0,
         "manager_decision": None,
+        "demand_analyzed": False,
+        "last_analyzed_text": "",
+        "demand_quantity": 20,
+        "demand_horizon": "Próximos 3 meses",
+        "remap_target": {},
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -214,41 +235,83 @@ def add_trajectory_event(participant_id: str, event_type: str, label: str, actor
 # ENGINES
 # -----------------------------
 def extract_skills(text: str) -> pd.DataFrame:
-    """Deterministic semantic proxy for the MVP; replaceable by embeddings/LLM later."""
-    text_l = text.lower()
+    """Proxy semântico determinístico e explicável para o MVP.
+
+    O piloto poderá substituir esta camada por embeddings/LLM, mas o protótipo
+    mantém regras reproduzíveis para demonstrar human-in-the-loop e rastreabilidade.
+    """
+    text_l = (text or "").lower()
     rows = []
     seen = set()
+
+    # Regras compostas: algumas ocupações implicam um conjunto coerente de competências.
+    occupation_bundles = [
+        (
+            ["recrutador", "recrutadores", "recrutamento", "seleção"],
+            [
+                ("SK013", 0.94, "ocupação de recrutamento"),
+                ("SK014", 0.90, "atividade típica: triagem"),
+                ("SK015", 0.88, "atividade típica: entrevista"),
+                ("SK009", 0.84, "competência transversal associada"),
+                ("SK016", 0.76, "ferramenta digital associada"),
+            ],
+        ),
+        (
+            ["logística", "estoque", "expedição", "almoxarif"],
+            [
+                ("SK004", 0.94, "ocupação de logística"),
+                ("SK001", 0.90, "atividade típica: estoque"),
+                ("SK002", 0.84, "documentação operacional"),
+                ("SK003", 0.80, "sistema de gestão associado"),
+                ("SK006", 0.78, "competência transversal associada"),
+            ],
+        ),
+    ]
+
+    for triggers, bundle in occupation_bundles:
+        if any(t in text_l for t in triggers):
+            for skill_id, confidence, trigger in bundle:
+                if skill_id not in seen:
+                    seen.add(skill_id)
+                    rows.append({
+                        "skill_id": skill_id,
+                        "competência_sugerida": SKILLS[skill_id]["name"],
+                        "tipo": SKILLS[skill_id]["type"],
+                        "confiança": confidence,
+                        "gatilho": trigger,
+                        "status": st.session_state.validated_skills.get(skill_id, "Pendente"),
+                    })
+
+    # Regras por palavra-chave complementam a inferência ocupacional.
     for keyword, skill_id in KEYWORD_TO_SKILL.items():
         if keyword in text_l and skill_id not in seen:
             seen.add(skill_id)
-            confidence = 0.94 if keyword == SKILLS[skill_id]["name"].lower() else 0.82
             rows.append({
                 "skill_id": skill_id,
                 "competência_sugerida": SKILLS[skill_id]["name"],
                 "tipo": SKILLS[skill_id]["type"],
-                "confiança": confidence,
+                "confiança": 0.86,
                 "gatilho": keyword,
                 "status": st.session_state.validated_skills.get(skill_id, "Pendente"),
             })
-    if not rows:
-        rows.append({
-            "skill_id": "SK004",
-            "competência_sugerida": "Logística operacional",
-            "tipo": "Técnica",
-            "confiança": 0.58,
-            "gatilho": "inferência genérica",
-            "status": st.session_state.validated_skills.get("SK004", "Pendente"),
-        })
-    return pd.DataFrame(rows)
+
+    return pd.DataFrame(rows, columns=[
+        "skill_id", "competência_sugerida", "tipo", "confiança", "gatilho", "status"
+    ])
 
 
 def required_skills_from_demand(df: pd.DataFrame) -> List[str]:
     accepted = []
     for r in df.to_dict("records"):
-        status = st.session_state.validated_skills.get(r["skill_id"], r["status"])
-        if status in ["Validada", "Remapeada"]:
-            accepted.append(r["skill_id"])
-    return accepted if accepted else df["skill_id"].tolist()
+        sid = r["skill_id"]
+        status = st.session_state.validated_skills.get(sid, r.get("status", "Pendente"))
+        if status == "Validada":
+            accepted.append(sid)
+        elif isinstance(status, str) and status.startswith("Remapeada:"):
+            accepted.append(status.split(":", 1)[1])
+    if accepted:
+        return list(dict.fromkeys(accepted))
+    return df["skill_id"].tolist() if not df.empty else []
 
 
 def participant_record(pid: str) -> Dict:
@@ -425,48 +488,137 @@ def page_overview():
 def page_demand_skills():
     page_header(
         "SKILLS INTELLIGENCE",
-        "Demanda & Competências",
-        "Transforma sinais do setor produtivo em competências estruturadas, com validação humana antes de qualquer uso operacional.",
+        "Demanda do setor produtivo",
+        "Transforma uma necessidade empresarial em competências estruturadas e validadas por humanos antes de alimentar trajetórias ou formação.",
     )
 
-    left, right = st.columns([1.05, 1])
-    with left:
-        st.subheader("1. Registrar sinal de demanda")
-        company = st.selectbox("Empresa / origem", ["Atlântico Logística", "Empresa Alfa", "Conexão RH", "Balcão de Empregos"])
-        text = st.text_area("Descrição da necessidade", st.session_state.selected_demand_text, height=160)
-        st.session_state.selected_demand_text = text
-        if st.button("Analisar demanda", type="primary", use_container_width=True):
-            add_evidence("demand_analyzed", "Gestor Público", f"Demanda analisada — origem: {company}", source=company)
-            st.success("Demanda analisada. Competências sugeridas pelo motor semântico demonstrativo.")
+    st.markdown(
+        '<div class="explain"><b>Como ler esta tela:</b> a empresa descreve a necessidade → o NEXO sugere competências → o agente público valida, remapeia ou rejeita → somente as competências validadas entram na taxonomia operacional.</div>',
+        unsafe_allow_html=True,
+    )
+    st.write("")
 
-    extracted = extract_skills(st.session_state.selected_demand_text)
-    with right:
-        st.subheader("2. Competências sugeridas")
-        st.caption("No MVP, a extração é determinística para ser reproduzível. A arquitetura admite embeddings/LLM no piloto.")
+    st.subheader("1. Descreva a necessidade")
+    c1, c2, c3 = st.columns([1.2, .6, .8])
+    with c1:
+        company = st.selectbox("Empresa / origem", ["Atlântico Logística", "Empresa Alfa", "Conexão RH", "Balcão de Empregos"])
+    with c2:
+        quantity = st.number_input("Quantidade prevista", min_value=1, max_value=5000, value=int(st.session_state.demand_quantity), step=1)
+        st.session_state.demand_quantity = quantity
+    with c3:
+        horizon = st.selectbox(
+            "Horizonte da contratação",
+            ["Próximos 30 dias", "Próximos 3 meses", "Próximos 6 meses", "Próximos 12 meses"],
+            index=1,
+        )
+        st.session_state.demand_horizon = horizon
+
+    text = st.text_area(
+        "Descrição da demanda",
+        st.session_state.selected_demand_text,
+        height=140,
+        placeholder="Ex.: Preciso de 100 profissionais para atuarem como recrutadores...",
+    )
+    st.session_state.selected_demand_text = text
+
+    if st.button("Analisar demanda", type="primary", use_container_width=True):
+        # Nova análise = novo ciclo de validação. Evita carregar decisões de uma demanda anterior.
+        if text.strip() != st.session_state.last_analyzed_text.strip():
+            st.session_state.validated_skills = {}
+            st.session_state.remap_target = {}
+        st.session_state.last_analyzed_text = text
+        st.session_state.demand_analyzed = True
+        add_evidence(
+            "demand_analyzed",
+            "Gestor Público",
+            f"Demanda analisada — origem: {company}; quantidade: {quantity}; horizonte: {horizon}",
+            source=company,
+        )
+        st.success("Demanda analisada. Revise as competências sugeridas antes de incorporá-las à taxonomia operacional.")
+
+    if not st.session_state.demand_analyzed:
+        st.info("Preencha a demanda e clique em **Analisar demanda** para gerar sugestões de competências.")
+        disclaimer()
+        return
+
+    extracted = extract_skills(st.session_state.last_analyzed_text)
+
+    st.subheader("2. Competências identificadas pelo NEXO")
+    st.caption("No MVP, a inferência é determinística e reproduzível. No piloto, esta camada poderá usar embeddings/LLM com validação humana obrigatória.")
+
+    if extracted.empty:
+        st.warning(
+            "O MVP não encontrou competências com segurança suficiente nesta descrição. "
+            "Isso é preferível a inventar uma competência genérica. No piloto, o motor semântico ampliará a cobertura e manterá revisão humana."
+        )
+    else:
         for r in extracted.to_dict("records"):
-            status = st.session_state.validated_skills.get(r["skill_id"], r["status"])
+            skill_id = r["skill_id"]
+            status = st.session_state.validated_skills.get(skill_id, "Pendente")
             with st.container(border=True):
                 a, b = st.columns([4, 1])
-                a.markdown(f"**{r['competência_sugerida']}**  \n{r['tipo']} • confiança {r['confiança']:.0%} • gatilho: `{r['gatilho']}`")
-                b.markdown(f"**{status}**")
-                c1, c2, c3 = st.columns(3)
-                if c1.button("Validar", key=f"val_{r['skill_id']}", use_container_width=True):
-                    st.session_state.validated_skills[r["skill_id"]] = "Validada"
-                    add_evidence("skill_validated", "Gestor Público", f"Competência validada: {r['competência_sugerida']}")
-                    st.rerun()
-                if c2.button("Remapear", key=f"rem_{r['skill_id']}", use_container_width=True):
-                    st.session_state.validated_skills[r["skill_id"]] = "Remapeada"
-                    add_evidence("skill_remapped", "Gestor Público", f"Competência remapeada: {r['competência_sugerida']}")
-                    st.rerun()
-                if c3.button("Rejeitar", key=f"rej_{r['skill_id']}", use_container_width=True):
-                    st.session_state.validated_skills[r["skill_id"]] = "Rejeitada"
-                    add_evidence("skill_rejected", "Gestor Público", f"Competência rejeitada: {r['competência_sugerida']}")
-                    st.rerun()
+                a.markdown(
+                    f"**{r['competência_sugerida']}**  \n"
+                    f"{r['tipo']} • confiança {r['confiança']:.0%} • origem: `{r['gatilho']}`"
+                )
+                b.markdown(f"**Status: {status}**")
 
-    st.subheader("3. Taxonomia operacional para a demanda")
-    accepted = required_skills_from_demand(extracted)
-    skill_chips(accepted)
-    st.info("Human-in-the-loop: o motor sugere; o agente público valida, remapeia ou rejeita. A decisão e sua evidência ficam registradas.")
+                if status == "Remapeando":
+                    options = [sid for sid in SKILLS.keys() if sid != skill_id]
+                    target = st.selectbox(
+                        "Remapear para",
+                        options=options,
+                        format_func=lambda sid: SKILLS[sid]["name"],
+                        key=f"remap_select_{skill_id}",
+                    )
+                    rc1, rc2 = st.columns(2)
+                    if rc1.button("Confirmar remapeamento", key=f"confirm_rem_{skill_id}", use_container_width=True):
+                        st.session_state.validated_skills[skill_id] = f"Remapeada:{target}"
+                        st.session_state.remap_target[skill_id] = target
+                        add_evidence(
+                            "skill_remapped",
+                            "Gestor Público",
+                            f"Competência remapeada: {r['competência_sugerida']} → {SKILLS[target]['name']}",
+                        )
+                        st.rerun()
+                    if rc2.button("Cancelar", key=f"cancel_rem_{skill_id}", use_container_width=True):
+                        st.session_state.validated_skills[skill_id] = "Pendente"
+                        st.rerun()
+                else:
+                    c1, c2, c3 = st.columns(3)
+                    if c1.button("Validar", key=f"val_{skill_id}", use_container_width=True):
+                        st.session_state.validated_skills[skill_id] = "Validada"
+                        add_evidence("skill_validated", "Gestor Público", f"Competência validada: {r['competência_sugerida']}")
+                        st.rerun()
+                    if c2.button("Remapear", key=f"rem_{skill_id}", use_container_width=True):
+                        st.session_state.validated_skills[skill_id] = "Remapeando"
+                        st.rerun()
+                    if c3.button("Rejeitar", key=f"rej_{skill_id}", use_container_width=True):
+                        st.session_state.validated_skills[skill_id] = "Rejeitada"
+                        add_evidence("skill_rejected", "Gestor Público", f"Competência rejeitada: {r['competência_sugerida']}")
+                        st.rerun()
+
+    st.subheader("3. Taxonomia validada para esta demanda")
+    operational = []
+    for r in extracted.to_dict("records"):
+        sid = r["skill_id"]
+        status = st.session_state.validated_skills.get(sid, "Pendente")
+        if status == "Validada":
+            operational.append(sid)
+        elif status.startswith("Remapeada:"):
+            operational.append(status.split(":", 1)[1])
+
+    if operational:
+        # preserva ordem e remove duplicatas
+        operational = list(dict.fromkeys(operational))
+        skill_chips(operational)
+        st.success(
+            f"{len(operational)} competência(s) validada(s). Essas competências já podem alimentar análise de gaps, trajetórias e engenharia educacional."
+        )
+    else:
+        st.info("Nenhuma competência foi incorporada ainda. Valide ou remapeie pelo menos uma sugestão acima.")
+
+    st.info("**Human-in-the-loop:** o NEXO sugere; o agente público decide. Nenhuma competência é incorporada automaticamente à política.")
     disclaimer()
 
 
