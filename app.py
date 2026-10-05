@@ -1,6 +1,11 @@
 import hashlib
 import json
 import random
+import gzip
+import os
+import re
+import unicodedata
+from difflib import SequenceMatcher
 from datetime import datetime
 from typing import Dict, List, Tuple
 
@@ -54,6 +59,166 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+# -----------------------------
+# OFFICIAL OCCUPATIONAL KNOWLEDGE LAYER
+# -----------------------------
+STOPWORDS = {
+    "a","ao","aos","as","com","como","da","das","de","do","dos","e","em","entre","esta","este",
+    "para","por","que","sem","ser","sua","suas","seu","seus","um","uma","uns","umas","preciso","precisa",
+    "precisamos","profissional","profissionais","atuar","atuarem","vaga","vagas","contratar","contratacao",
+    "trabalho","trabalhar","funcao","area","cargo","pessoa","pessoas"
+}
+
+SOURCE_REFERENCES = {
+    "CBO": "https://www.gov.br/trabalho-e-emprego/pt-br/assuntos/cbo/pagina-inicial/",
+    "QBQ": "https://www.gov.br/trabalho-e-emprego/pt-br/assuntos/quadro-brasileiro-de-qualificacoes-qbq",
+    "GBO": "https://www.gov.br/trabalho-e-emprego/pt-br/assuntos/estatisticas-trabalho/guia-brasileiro-de-ocupacoes",
+    "CNCT": "https://cnct.mec.gov.br/",
+    "MONITOR": "https://www.gov.br/mec/pt-br/centrais-de-conteudo/paineis-de-monitoramento-e-indicadores/monitor-de-profissoes",
+    "ESCO": "https://esco.ec.europa.eu/pt/about-esco/what-esco",
+}
+
+CNCT_HINTS = [
+    (["logistica", "estoque", "armazenagem", "expedicao"], "Técnico em Logística"),
+    (["recrutamento", "recursos humanos", "pessoal"], "Técnico em Recursos Humanos"),
+    (["enfermagem"], "Técnico em Enfermagem"),
+    (["eletrotecnico", "eletricista", "eletrica"], "Técnico em Eletrotécnica"),
+    (["desenvolvedor", "sistemas", "software", "programacao"], "Técnico em Desenvolvimento de Sistemas"),
+    (["informatica", "suporte", "computacao"], "Técnico em Informática"),
+    (["edificacoes", "obras civis", "construcao civil"], "Técnico em Edificações"),
+    (["seguranca do trabalho", "seguranca ocupacional"], "Técnico em Segurança do Trabalho"),
+    (["administracao", "administrativo", "escritorio"], "Técnico em Administração"),
+    (["contabilidade", "contabil"], "Técnico em Contabilidade"),
+    (["mecanica", "manutencao mecanica"], "Técnico em Mecânica"),
+    (["mecatronica", "automacao"], "Técnico em Mecatrônica"),
+    (["quimica", "processos quimicos", "petroquimica"], "Técnico em Química"),
+    (["meio ambiente", "ambiental"], "Técnico em Meio Ambiente"),
+]
+
+
+def suggest_cnct_courses(text: str):
+    t = normalize_text(text)
+    found = []
+    for triggers, course in CNCT_HINTS:
+        if any(normalize_text(k) in t for k in triggers):
+            found.append(course)
+    return list(dict.fromkeys(found))[:3]
+
+
+def normalize_text(value: str) -> str:
+    value = unicodedata.normalize("NFKD", str(value or "")).encode("ascii", "ignore").decode("ascii").lower()
+    value = re.sub(r"[^a-z0-9]+", " ", value)
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def stem_token(token: str) -> str:
+    # Stem leve apenas para aumentar cobertura lexical do MVP (ex.: recrutadores -> recrutador).
+    t = token
+    if len(t) > 6 and t.endswith("oes"):
+        t = t[:-3] + "ao"
+    elif len(t) > 5 and t.endswith("es"):
+        t = t[:-2]
+    elif len(t) > 4 and t.endswith("s"):
+        t = t[:-1]
+    return t
+
+
+def meaningful_tokens(text: str):
+    return {
+        stem_token(t) for t in normalize_text(text).split()
+        if len(t) >= 3 and t not in STOPWORDS
+    }
+
+
+@st.cache_data(show_spinner=False)
+def load_occupational_knowledge():
+    base = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(base, "occupational_knowledge.json.gz")
+    if not os.path.exists(path):
+        return {"metadata": {}, "occupations": []}
+    with gzip.open(path, "rt", encoding="utf-8") as f:
+        data = json.load(f)
+    for rec in data.get("occupations", []):
+        rec["_title_norm"] = normalize_text(rec.get("occupation", ""))
+        rec["_title_tokens"] = list(meaningful_tokens(rec.get("occupation", "")))
+    return data
+
+
+OCCUPATIONAL_KB = load_occupational_knowledge()
+OCCUPATIONS = OCCUPATIONAL_KB.get("occupations", [])
+
+
+OCCUPATION_ALIAS_CBO = {
+    "recrutador": "351315",
+    "recrutamento": "351315",
+    "programador": "317110",
+    "desenvolvedor": "317110",
+    "desenvolvedor software": "317110",
+    "rh": "252405",
+    "recursos humanos": "252405",
+    "auxiliar logistica": "414140",
+    "empilhadeira": "782220",
+    "operador empilhadeira": "782220",
+    "tecnico enfermagem": "322205",
+    "eletricista industrial": "715615",
+}
+
+
+def occupation_matches(text: str, top_n: int = 5):
+    q_norm = normalize_text(text)
+    q_tokens = meaningful_tokens(text)
+    if not q_tokens:
+        return []
+    scored = []
+    alias_boost = {}
+    for alias, cbo in OCCUPATION_ALIAS_CBO.items():
+        if normalize_text(alias) in q_norm:
+            alias_boost[cbo] = max(alias_boost.get(cbo, 0), 35)
+    for rec in OCCUPATIONS:
+        title = rec.get("_title_norm", "")
+        title_tokens = {stem_token(t) for t in rec.get("_title_tokens", [])}
+        search_tokens = meaningful_tokens(rec.get("search_text", ""))
+        title_overlap = len(q_tokens & title_tokens)
+        context_overlap = len(q_tokens & search_tokens)
+        # Aproxima palavras derivadas da mesma raiz (recrutador/recrutamento, administrar/administração).
+        q_prefixes = {t[:6] for t in q_tokens if len(t) >= 6}
+        title_prefixes = {t[:6] for t in title_tokens if len(t) >= 6}
+        search_prefixes = {t[:6] for t in search_tokens if len(t) >= 6}
+        prefix_title_overlap = len(q_prefixes & title_prefixes)
+        prefix_context_overlap = len(q_prefixes & search_prefixes)
+        score = (
+            title_overlap * 10
+            + prefix_title_overlap * 8
+            + min(context_overlap, 8) * 1.35
+            + min(prefix_context_overlap, 8) * 2.4
+        )
+        if title and (title in q_norm or q_norm in title):
+            score += 15
+        # Similaridade lexical recebe peso limitado; evita transformar o score em falsa probabilidade.
+        ratio = SequenceMatcher(None, " ".join(sorted(q_tokens)), title).ratio()
+        score += ratio * 5
+        score += alias_boost.get(str(rec.get("cbo", "")), 0)
+        if score > 2.5:
+            scored.append((score, rec))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    if not scored:
+        return []
+    max_score = scored[0][0]
+    out = []
+    for score, rec in scored[:top_n]:
+        adherence = min(0.98, max(0.35, 0.45 + 0.50 * (score / max_score)))
+        out.append({"score": score, "adherence": adherence, "record": rec})
+    return out
+
+
+def register_dynamic_skill(skill_id: str, name: str, skill_type: str, source: str, cbo: str = ""):
+    SKILLS[skill_id] = {
+        "name": name,
+        "type": skill_type,
+        "source": source,
+        "cbo": cbo,
+    }
 
 # -----------------------------
 # DOMAIN DATA
@@ -190,6 +355,8 @@ def init_state():
         "demand_quantity": 20,
         "demand_horizon": "Próximos 3 meses",
         "remap_target": {},
+        "occupation_matches": [],
+        "selected_cbo": None,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -235,68 +402,92 @@ def add_trajectory_event(participant_id: str, event_type: str, label: str, actor
 # ENGINES
 # -----------------------------
 def extract_skills(text: str) -> pd.DataFrame:
-    """Proxy semântico determinístico e explicável para o MVP.
+    """Relaciona demanda livre a ocupações CBO e competências QBQ.
 
-    O piloto poderá substituir esta camada por embeddings/LLM, mas o protótipo
-    mantém regras reproduzíveis para demonstrar human-in-the-loop e rastreabilidade.
+    Núcleo oficial do MVP:
+    - CBO: identificação/classificação ocupacional;
+    - QBQ: perfil, conhecimentos, habilidades e atitudes por ocupação.
+
+    GBO, Monitor de Profissões, CNCT e ESCO entram como camadas complementares
+    de contexto de mercado, itinerários formativos e enriquecimento semântico.
     """
-    text_l = (text or "").lower()
     rows = []
     seen = set()
-
-    # Regras compostas: algumas ocupações implicam um conjunto coerente de competências.
-    occupation_bundles = [
-        (
-            ["recrutador", "recrutadores", "recrutamento", "seleção"],
-            [
-                ("SK013", 0.94, "ocupação de recrutamento"),
-                ("SK014", 0.90, "atividade típica: triagem"),
-                ("SK015", 0.88, "atividade típica: entrevista"),
-                ("SK009", 0.84, "competência transversal associada"),
-                ("SK016", 0.76, "ferramenta digital associada"),
-            ],
-        ),
-        (
-            ["logística", "estoque", "expedição", "almoxarif"],
-            [
-                ("SK004", 0.94, "ocupação de logística"),
-                ("SK001", 0.90, "atividade típica: estoque"),
-                ("SK002", 0.84, "documentação operacional"),
-                ("SK003", 0.80, "sistema de gestão associado"),
-                ("SK006", 0.78, "competência transversal associada"),
-            ],
-        ),
+    matches = occupation_matches(text, top_n=5)
+    st.session_state.occupation_matches = [
+        {
+            "cbo": m["record"].get("cbo"),
+            "occupation": m["record"].get("occupation"),
+            "adherence": m["adherence"],
+            "qualification_level": m["record"].get("qualification_level"),
+            "summary": m["record"].get("summary"),
+            "profile": m["record"].get("profile"),
+        }
+        for m in matches
     ]
 
-    for triggers, bundle in occupation_bundles:
-        if any(t in text_l for t in triggers):
-            for skill_id, confidence, trigger in bundle:
-                if skill_id not in seen:
-                    seen.add(skill_id)
-                    rows.append({
-                        "skill_id": skill_id,
-                        "competência_sugerida": SKILLS[skill_id]["name"],
-                        "tipo": SKILLS[skill_id]["type"],
-                        "confiança": confidence,
-                        "gatilho": trigger,
-                        "status": st.session_state.validated_skills.get(skill_id, "Pendente"),
-                    })
+    # Usa a ocupação mais aderente como referência principal e uma segunda quando muito próxima.
+    selected = []
+    if matches:
+        selected.append(matches[0])
+        if len(matches) > 1 and matches[1]["score"] >= matches[0]["score"] * 0.82:
+            selected.append(matches[1])
 
-    # Regras por palavra-chave complementam a inferência ocupacional.
+    for match_rank, m in enumerate(selected):
+        rec = m["record"]
+        cbo = rec.get("cbo", "")
+        occ = rec.get("occupation", "")
+        base_conf = m["adherence"]
+        # Habilidades recebem maior peso operacional; conhecimentos e atitudes complementam a matriz.
+        components = [
+            ("H", rec.get("skills", [])[:6], "Habilidade (QBQ)", 0.98),
+            ("K", rec.get("knowledge", [])[:4], "Conhecimento (QBQ)", 0.92),
+            ("A", rec.get("attitudes", [])[:2], "Atitude (QBQ)", 0.86),
+        ]
+        for kind, items, label, factor in components:
+            for idx, item in enumerate(items):
+                name = str(item.get("name", "")).strip()
+                if not name:
+                    continue
+                dedupe = normalize_text(name)
+                if dedupe in seen:
+                    continue
+                seen.add(dedupe)
+                sid = f"QBQ_{cbo}_{kind}_{idx:02d}"
+                register_dynamic_skill(sid, name, label, "QBQ/CBO", cbo)
+                importance = float(item.get("importance", 0) or 0)
+                importance_adj = min(1.0, max(0.6, importance / 5 if importance else 0.75))
+                confidence = min(0.98, base_conf * factor * importance_adj + 0.08)
+                rows.append({
+                    "skill_id": sid,
+                    "competência_sugerida": name,
+                    "tipo": label,
+                    "confiança": confidence,
+                    "gatilho": f"CBO {cbo} — {occ}",
+                    "fonte": "QBQ/CBO",
+                    "status": st.session_state.validated_skills.get(sid, "Pendente"),
+                })
+
+    # Termos explícitos continuam úteis como complemento da linguagem livre da empresa.
+    text_l = normalize_text(text)
     for keyword, skill_id in KEYWORD_TO_SKILL.items():
-        if keyword in text_l and skill_id not in seen:
-            seen.add(skill_id)
+        if normalize_text(keyword) in text_l and skill_id not in seen:
+            key_name = normalize_text(SKILLS[skill_id]["name"])
+            if key_name in seen:
+                continue
+            seen.add(key_name)
             rows.append({
                 "skill_id": skill_id,
                 "competência_sugerida": SKILLS[skill_id]["name"],
                 "tipo": SKILLS[skill_id]["type"],
-                "confiança": 0.86,
-                "gatilho": keyword,
+                "confiança": 0.78,
+                "gatilho": f"termo explícito: {keyword}",
+                "fonte": "Demanda empresarial",
                 "status": st.session_state.validated_skills.get(skill_id, "Pendente"),
             })
 
     return pd.DataFrame(rows, columns=[
-        "skill_id", "competência_sugerida", "tipo", "confiança", "gatilho", "status"
+        "skill_id", "competência_sugerida", "tipo", "confiança", "gatilho", "fonte", "status"
     ])
 
 
@@ -543,8 +734,38 @@ def page_demand_skills():
 
     extracted = extract_skills(st.session_state.last_analyzed_text)
 
-    st.subheader("2. Competências identificadas pelo NEXO")
-    st.caption("No MVP, a inferência é determinística e reproduzível. No piloto, esta camada poderá usar embeddings/LLM com validação humana obrigatória.")
+    st.subheader("2. Ocupações de referência identificadas")
+    matches = st.session_state.get("occupation_matches", [])
+    if matches:
+        match_df = pd.DataFrame([
+            {
+                "CBO": m["cbo"],
+                "Ocupação de referência": m["occupation"],
+                "Aderência lexical/contextual": f"{m['adherence']:.0%}",
+                "Nível QBQ": m.get("qualification_level") or "—",
+            }
+            for m in matches[:5]
+        ])
+        st.dataframe(match_df, use_container_width=True, hide_index=True)
+        principal = matches[0]
+        st.session_state.selected_cbo = principal["cbo"]
+        with st.expander(f"Ver perfil oficial da ocupação principal — CBO {principal['cbo']} · {principal['occupation']}"):
+            st.markdown("**Síntese ocupacional**")
+            st.write(principal.get("summary") or "Não disponível na base carregada.")
+            st.markdown("**Perfil ocupacional**")
+            st.write(principal.get("profile") or "Não disponível na base carregada.")
+            st.caption("Referência principal: CBO + Quadro Brasileiro de Qualificações (QBQ).")
+            course_hints = suggest_cnct_courses(" ".join([principal.get("occupation", ""), principal.get("summary", "")]))
+            if course_hints:
+                st.markdown("**Referências formativas potenciais no CNCT/MEC**")
+                for course in course_hints:
+                    st.markdown(f"- {course}")
+                st.caption("Referência orientativa do MVP; no piloto, a associação CBO↔curso deve ser carregada diretamente do CNCT e validada pela engenharia educacional.")
+    else:
+        st.warning("Não foi possível associar a descrição a uma ocupação CBO com aderência mínima. Refine o texto com o título da função e suas principais atividades.")
+
+    st.subheader("3. Competências identificadas pelo NEXO")
+    st.caption("A ocupação é associada à CBO e as competências são trazidas do QBQ. O score exibido é aderência lexical/contextual do protótipo, não probabilidade estatística. No piloto, ESCO/embeddings/LLM podem ampliar sinônimos e equivalências, sempre com validação humana.")
 
     if extracted.empty:
         st.warning(
@@ -559,7 +780,8 @@ def page_demand_skills():
                 a, b = st.columns([4, 1])
                 a.markdown(
                     f"**{r['competência_sugerida']}**  \n"
-                    f"{r['tipo']} • confiança {r['confiança']:.0%} • origem: `{r['gatilho']}`"
+                    f"{r['tipo']} • aderência {r['confiança']:.0%} • fonte: **{r.get('fonte','NEXO')}**  \n"
+                    f"Referência: `{r['gatilho']}`"
                 )
                 b.markdown(f"**Status: {status}**")
 
@@ -598,7 +820,7 @@ def page_demand_skills():
                         add_evidence("skill_rejected", "Gestor Público", f"Competência rejeitada: {r['competência_sugerida']}")
                         st.rerun()
 
-    st.subheader("3. Taxonomia validada para esta demanda")
+    st.subheader("4. Matriz de competências validada para esta demanda")
     operational = []
     for r in extracted.to_dict("records"):
         sid = r["skill_id"]
@@ -619,6 +841,19 @@ def page_demand_skills():
         st.info("Nenhuma competência foi incorporada ainda. Valide ou remapeie pelo menos uma sugestão acima.")
 
     st.info("**Human-in-the-loop:** o NEXO sugere; o agente público decide. Nenhuma competência é incorporada automaticamente à política.")
+
+    with st.expander("Fontes de referência e como o NEXO as utiliza"):
+        st.markdown(
+            """
+            **CBO — Classificação Brasileira de Ocupações:** identifica e codifica a ocupação de referência.  
+            **QBQ — Quadro Brasileiro de Qualificações:** fornece perfil ocupacional, conhecimentos, habilidades, atitudes e nível de qualificação.  
+            **GBO — Guia Brasileiro de Ocupações:** referência para leitura do conteúdo ocupacional e indicadores do mercado formal.  
+            **CNCT/MEC — Catálogo Nacional de Cursos Técnicos:** referência para relacionar ocupações a itinerários e perfis de formação técnica.  
+            **Monitor de Profissões MEC/ABDI:** referência para aproximar oferta educacional, ocupações e dinâmica de mercado.  
+            **ESCO:** camada complementar para sinônimos, equivalências semânticas e relacionamento ocupação–competências em arquitetura interoperável.
+            """
+        )
+        st.caption(f"No MVP v1.2, CBO/QBQ formam a base operacional local com {len(OCCUPATIONS):,} ocupações. As demais fontes orientam a camada complementar de mercado, formação e interoperabilidade do piloto.".replace(",", "."))
     disclaimer()
 
 
@@ -797,7 +1032,7 @@ def page_experiments():
 # SIDEBAR / ROUTER
 # -----------------------------
 st.sidebar.markdown("# NEXO Qualifica+")
-st.sidebar.caption("CPSI MVP v1")
+st.sidebar.caption("CPSI MVP v1.2 — CBO/QBQ")
 st.sidebar.markdown("---")
 
 pages = [

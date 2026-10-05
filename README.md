@@ -1,62 +1,51 @@
-# NEXO Qualifica+ — CPSI MVP v1
+# NEXO Qualifica+ — CPSI MVP v1.2
 
 MVP demonstrativo para submissão ao CPSI de qualificação profissional de Itajaí.
 
-## Tese do produto
+## Atualização v1.2 — inteligência ocupacional ampliada
 
-O MVP testa o menor circuito integrado necessário para demonstrar a hipótese de inovação pública:
+A tela **Demanda & Competências** passou a usar uma base ocupacional local derivada da matriz oficial CBO/QBQ fornecida ao projeto.
 
-**demanda do mercado → competências → diagnóstico do participante → recomendação de trajetória → intervenção formativa → acompanhamento → outcome → feedback → nova decisão pública**.
+### Base operacional carregada
+- 2.673 ocupações CBO/QBQ
+- perfil e síntese ocupacional
+- conhecimentos priorizados
+- habilidades priorizadas
+- atitudes priorizadas
+- nível de qualificação QBQ quando disponível
 
-O NEXO não é apresentado como LMS, portal de vagas ou ERP. A camada tecnológica existe para testar quatro motores integrados:
+Arquivo: `occupational_knowledge.json.gz`
 
-1. **Skills Intelligence** — traduz sinais do mercado em competências estruturadas e validadas;
-2. **Adaptive Trajectory** — recomenda percursos explicáveis sob revisão humana;
-3. **Learning-to-Outcome** — liga intervenção e aprendizagem aos resultados profissionais;
-4. **Policy Experiment Engine** — compara intervenções e transforma evidências em decisão.
+### Fontes de referência da arquitetura
+- CBO — Classificação Brasileira de Ocupações / MTE
+- QBQ — Quadro Brasileiro de Qualificações / MTE
+- GBO — Guia Brasileiro de Ocupações / MTE-OIT
+- CNCT — Catálogo Nacional de Cursos Técnicos / MEC
+- Monitor de Profissões — MEC/ABDI
+- ESCO — European Skills, Competences, Qualifications and Occupations
 
-## Navegação do MVP
+No MVP v1.2, **CBO/QBQ são a base operacional embarcada**. CNCT é usado para referências formativas demonstrativas. GBO, Monitor de Profissões e ESCO estão explicitados como camadas complementares de mercado, formação e enriquecimento/interoperabilidade previstas para o piloto.
 
-- Visão Geral
-- Demanda & Competências
-- Trajetórias
-- Engenharia Educacional
-- Experimentos & Outcomes
+## Fluxo do MVP
 
-## O que funciona de verdade no protótipo
+Demanda → ocupação CBO → competências QBQ → validação humana → trajetória → intervenção → outcome → decisão.
 
-- entrada textual de demanda empresarial;
-- extração determinística de competências como proxy reproduzível do futuro motor semântico;
-- human-in-the-loop para validar, remapear ou rejeitar skills;
-- gap analysis de participante vs. demanda;
-- recomendação explicável de percurso;
-- registro de decisão humana;
-- blueprint de engenharia educacional por skill gap;
-- registro longitudinal de eventos;
-- Evidence Ledger com hash demonstrativo;
-- comparação de duas coortes sintéticas e recomendação de continuidade/reformulação.
+## Arquivos necessários no Streamlit
 
-## Dados
+Na raiz do repositório:
 
-Todos os dados são sintéticos e destinados somente à demonstração. O MVP não deve ser apresentado como evidência empírica de resultado.
+- `app.py`
+- `occupational_knowledge.json.gz`
+- `requirements.txt`
+- `README.md`
 
-## Rodar localmente
+## Executar localmente
 
 ```bash
 pip install -r requirements.txt
 streamlit run app.py
 ```
 
-## Deploy
+## Observação
 
-Pode ser publicado no Streamlit Community Cloud apontando o app para `app.py`.
-
-## Próxima evolução para piloto CPSI
-
-- PostgreSQL/Supabase para persistência real;
-- pgvector e embeddings para Skills Intelligence;
-- LLM/NLP com validação humana para extração e normalização de competências;
-- autenticação e RBAC;
-- integrações com fontes municipais/autorizadas;
-- experiment management e indicadores calibrados após baseline;
-- LGPD, logging, versionamento de modelos e trilha de auditoria completa.
+Dados de participantes, empresas, coortes e resultados continuam sintéticos. A base ocupacional CBO/QBQ usada para ampliar o motor de demanda e competências é de referência oficial e foi transformada em formato compacto para o protótipo.
