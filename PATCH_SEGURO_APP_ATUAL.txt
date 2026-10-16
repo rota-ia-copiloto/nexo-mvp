@@ -1,0 +1,30 @@
+INTEGRAÇÃO MÍNIMA DO RADAR NO APP.PY ATUAL
+==============================================
+
+NÃO remova nenhum bloco do app.py que já está no GitHub.
+
+1. Na raiz do repositório faça upload de nexo_radar_vagas.py.
+   O arquivo nexo_radar_vagas_demo.py que já foi enviado NÃO substitui este módulo.
+
+2. No arquivo app.py, imediatamente após:
+     import streamlit as st
+   acrescente:
+     from nexo_radar_vagas import render_radar_vagas
+
+3. Dentro da lista de páginas que alimenta st.sidebar.radio("Navegação", pages),
+   logo após "Resultados & Impactos", acrescente:
+     "Radar de Vagas (demo)",
+
+4. No bloco final if/elif que exibe a página, APÓS a última condição existente,
+   acrescente exatamente:
+     elif page == "Radar de Vagas (demo)":
+         render_radar_vagas()
+
+5. Salve em Commit changes. Recarregue seu aplicativo Streamlit.
+
+IMPORTANTE: Se o seu app.py estiver diferente da versão que usamos como
+referência, prefira estas três edições à substituição integral do arquivo.
+Elas preservam seu código específico e histórico do projeto.
+
+AVISO: O Radar contém apenas HTML simulado e dados sintéticos. Não acessa
+nem raspa o portal de empregos de Itajaí. Não inclui consultas reais à API.

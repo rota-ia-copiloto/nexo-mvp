@@ -11,6 +11,7 @@ from typing import Dict, List, Tuple
 
 import pandas as pd
 import streamlit as st
+from nexo_radar_vagas import render_radar_vagas
 
 # ============================================================
 # NEXO QUALIFICA+ — CPSI MVP v1
@@ -1601,6 +1602,7 @@ pages = [
     "Diagnóstico & Trajetória",
     "Planejamento & Engenharia",
     "Resultados & Impactos",
+    "Radar de Vagas (demo)",
 ]
 page = st.sidebar.radio("Navegação", pages)
 
@@ -1620,3 +1622,5 @@ elif page == "Planejamento & Engenharia":
     page_learning()
 elif page == "Resultados & Impactos":
     page_experiments()
+elif page == "Radar de Vagas (demo)":
+    render_radar_vagas()
