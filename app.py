@@ -1600,7 +1600,7 @@ st.sidebar.markdown("---")
 
 pages = [
     "Visão Geral",
-    "Demanda & Competências",
+    "Perfil Empresa",
     "Diagnóstico & Trajetória",
     "Gestão das Ofertas de Qualificação",
     "Empregabilidade e Renda",
@@ -1616,7 +1616,7 @@ st.sidebar.caption("Dados sintéticos • recomendações explicáveis • super
 
 if page == "Visão Geral":
     page_overview()
-elif page == "Demanda & Competências":
+elif page == "Perfil Empresa":
     page_demand_skills()
 elif page == "Diagnóstico & Trajetória":
     page_trajectory()
