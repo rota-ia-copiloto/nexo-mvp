@@ -1601,7 +1601,7 @@ pages = [
     "Visão Geral",
     "Demanda & Competências",
     "Diagnóstico & Trajetória",
-    "Planejamento & Engenharia",
+    "Gestão das Ofertas de Qualificação",
     "Resultados & Impactos",
     "Radar de Vagas (demo)",
 ]
@@ -1619,7 +1619,7 @@ elif page == "Demanda & Competências":
     page_demand_skills()
 elif page == "Diagnóstico & Trajetória":
     page_trajectory()
-elif page == "Planejamento & Engenharia":
+elif page == "Gestão das Ofertas de Qualificação":
     render_planejamento_contratos()
 elif page == "Resultados & Impactos":
     page_experiments()
