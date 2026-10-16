@@ -1302,7 +1302,7 @@ def page_learning():
         for s in demand_skill_names[:10]:
             st.markdown(f'<span class="chip">{s}</span>', unsafe_allow_html=True)
     else:
-        st.warning("Ainda não há competências operacionais associadas à demanda. Valide a demanda na página Demanda & Competências.")
+        st.warning("Ainda não há competências operacionais associadas à demanda. Valide a demanda na página Perfil Empresa.")
 
     st.markdown("### 2. O que os diagnósticos individuais revelam em conjunto")
     a, b, c, d = st.columns(4)
