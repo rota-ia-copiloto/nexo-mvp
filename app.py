@@ -1062,7 +1062,7 @@ def diagnose_candidate(profile: Dict, demand_skill_ids: List[str]) -> Dict:
 
 def page_trajectory():
     page_header(
-        "DIAGNÓSTICO & TRAJETÓRIA",
+        "Perfil Cidadão",
         "Perfil, diagnóstico e jornada Qualifica+",
         "A pessoa informa sua trajetória, condições de participação, competências e objetivos. O NEXO organiza as evidências e sugere uma jornada para revisão humana.",
     )
@@ -1345,7 +1345,7 @@ def page_learning():
         st.dataframe(journey_df, use_container_width=True, hide_index=True)
     else:
         st.warning(
-            "Ainda não há diagnósticos preenchidos nesta sessão. Preencha ao menos um perfil em **Diagnóstico & Trajetória** para que o NEXO passe a cruzar demanda produtiva e características da população atendida."
+            "Ainda não há diagnósticos preenchidos nesta sessão. Preencha ao menos um perfil em **Perfil Cidadão** para que o NEXO passe a cruzar demanda produtiva e características da população atendida."
         )
 
     st.markdown("### 3. Prioridades de oferta formativa")
@@ -1601,7 +1601,7 @@ st.sidebar.markdown("---")
 pages = [
     "Visão Geral",
     "Perfil Empresa",
-    "Diagnóstico & Trajetória",
+    "Perfil Cidadão",
     "Gestão das Ofertas de Qualificação",
     "Empregabilidade e Renda",
     "Radar de Vagas (demo)",
@@ -1618,7 +1618,7 @@ if page == "Visão Geral":
     page_overview()
 elif page == "Perfil Empresa":
     page_demand_skills()
-elif page == "Diagnóstico & Trajetória":
+elif page == "Perfil Cidadão":
     page_trajectory()
 elif page == "Gestão das Ofertas de Qualificação":
     render_planejamento_contratos()
