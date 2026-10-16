@@ -1,3 +1,4 @@
+from nexo_resultados_empregabilidade import render_resultados_empregabilidade
 from nexo_planejamento_contratos import render_planejamento_contratos
 import hashlib
 import json
@@ -1622,6 +1623,6 @@ elif page == "Diagnóstico & Trajetória":
 elif page == "Gestão das Ofertas de Qualificação":
     render_planejamento_contratos()
 elif page == "Resultados & Impactos":
-    page_experiments()
+    render_resultados_empregabilidade()
 elif page == "Radar de Vagas (demo)":
     render_radar_vagas()
