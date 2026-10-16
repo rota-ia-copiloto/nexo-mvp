@@ -1,3 +1,4 @@
+from nexo_visao_executiva import render_visao_executiva
 from nexo_resultados_empregabilidade import render_resultados_empregabilidade
 from nexo_planejamento_contratos import render_planejamento_contratos
 import hashlib
@@ -1606,7 +1607,7 @@ pages = [
     "Empregabilidade e Renda",
     "Radar de Vagas (demo)",
 ]
-page = st.sidebar.radio("Navegação", pages)
+page = st.sidebar.radio("Navegação", pages, key="nexo_nav")
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("**Fluxo experimental**")
@@ -1615,7 +1616,7 @@ st.sidebar.markdown("---")
 st.sidebar.caption("Dados sintéticos • recomendações explicáveis • supervisão humana")
 
 if page == "Visão Geral":
-    page_overview()
+    render_visao_executiva(paginas=pages)
 elif page == "Perfil Empresa":
     page_demand_skills()
 elif page == "Perfil Cidadão":
