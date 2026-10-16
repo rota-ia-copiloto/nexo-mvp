@@ -1603,7 +1603,7 @@ pages = [
     "Demanda & Competências",
     "Diagnóstico & Trajetória",
     "Gestão das Ofertas de Qualificação",
-    "Resultados & Impactos",
+    "Empregabilidade e Renda",
     "Radar de Vagas (demo)",
 ]
 page = st.sidebar.radio("Navegação", pages)
@@ -1622,7 +1622,7 @@ elif page == "Diagnóstico & Trajetória":
     page_trajectory()
 elif page == "Gestão das Ofertas de Qualificação":
     render_planejamento_contratos()
-elif page == "Resultados & Impactos":
+elif page == "Empregabilidade e Renda":
     render_resultados_empregabilidade()
 elif page == "Radar de Vagas (demo)":
     render_radar_vagas()
