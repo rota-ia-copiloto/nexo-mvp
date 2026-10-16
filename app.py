@@ -1,3 +1,4 @@
+from nexo_planejamento_contratos import render_planejamento_contratos
 import hashlib
 import json
 import random
@@ -1619,7 +1620,7 @@ elif page == "Demanda & Competências":
 elif page == "Diagnóstico & Trajetória":
     page_trajectory()
 elif page == "Planejamento & Engenharia":
-    page_learning()
+    render_planejamento_contratos()
 elif page == "Resultados & Impactos":
     page_experiments()
 elif page == "Radar de Vagas (demo)":
